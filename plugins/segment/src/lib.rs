@@ -40,7 +40,7 @@ pub struct Segment {
     dir: PathBuf,
     /// Loaded networks, by model id. Loading takes a second or two, so each
     /// is loaded on first use and kept.
-    sessions: Mutex<HashMap<&'static str, Session>>,
+    sessions: Mutex<HashMap<&'static str, (Session, &'static str)>>,
 }
 
 impl Segment {
@@ -54,6 +54,15 @@ impl Segment {
 
     pub fn models_dir(&self) -> &std::path::Path {
         &self.dir
+    }
+
+    /// Where each loaded model runs ("CPU", "DirectML", "Core ML"), by
+    /// model id.
+    pub fn devices(&self) -> Vec<(&'static str, &'static str)> {
+        let sessions = self.sessions.lock().unwrap();
+        let mut devices: Vec<_> = sessions.iter().map(|(id, (_, d))| (*id, *d)).collect();
+        devices.sort();
+        devices
     }
 
     /// Run `model` on `source` and return its probability map at the
@@ -89,7 +98,7 @@ impl Segment {
         if !sessions.contains_key(model.id) {
             sessions.insert(model.id, load(&path)?);
         }
-        let session = sessions.get_mut(model.id).unwrap();
+        let (session, _) = sessions.get_mut(model.id).unwrap();
         let outputs = session
             .run(ort::inputs![tensor])
             .map_err(|e| PluginError::Failed(format!("{} failed: {e}", model.name)))?;
@@ -115,19 +124,63 @@ impl Segment {
     }
 }
 
-fn load(path: &std::path::Path) -> Result<Session> {
+/// Load a model, on the GPU if this platform's GPU execution provider can
+/// take it, otherwise on the CPU. Returns the session and where it runs.
+fn load(path: &std::path::Path) -> Result<(Session, &'static str)> {
+    if let Some((name, provider)) = gpu_provider(path) {
+        match build(path, Some(provider)) {
+            Ok(session) => return Ok((session, name)),
+            Err(e) => eprintln!("aperio: {name} unavailable, running AI masks on the CPU ({e})"),
+        }
+    }
+    let session = build(path, None).map_err(|e| {
+        PluginError::ModelUnavailable(format!("couldn't load {}: {e}", path.display()))
+    })?;
+    Ok((session, "CPU"))
+}
+
+fn build(
+    path: &std::path::Path,
+    gpu: Option<ort::ep::ExecutionProviderDispatch>,
+) -> ort::Result<Session> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let fail = |e: &dyn std::fmt::Display| PluginError::Failed(e.to_string());
-    Session::builder()
-        .map_err(|e| fail(&e))?
-        .with_optimization_level(GraphOptimizationLevel::Level3)
-        .map_err(|e| fail(&e))?
-        .with_intra_threads(threads)
-        .map_err(|e| fail(&e))?
-        .commit_from_file(path)
-        .map_err(|e| {
-            PluginError::ModelUnavailable(format!("couldn't load {}: {e}", path.display()))
-        })
+    let mut builder = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(threads)?;
+    if let Some(gpu) = gpu {
+        // DirectML can't use ONNX Runtime's memory pattern optimization.
+        builder = builder
+            .with_memory_pattern(!cfg!(windows))?
+            .with_execution_providers([gpu.error_on_failure()])?;
+    }
+    builder.commit_from_file(path)
+}
+
+/// This platform's GPU execution provider and its name: DirectML on
+/// Windows, Core ML on macOS. Nodes it can't run still go to the CPU.
+/// Setting `APERIO_AI_CPU=1` skips the GPU, for comparing results or working
+/// around a driver problem.
+fn gpu_provider(
+    model: &std::path::Path,
+) -> Option<(&'static str, ort::ep::ExecutionProviderDispatch)> {
+    if std::env::var_os("APERIO_AI_CPU").is_some_and(|v| v != "0") {
+        return None;
+    }
+    let _ = model;
+    #[cfg(windows)]
+    return Some(("DirectML", ort::ep::DirectML::default().build()));
+    #[cfg(target_os = "macos")]
+    return Some((
+        "Core ML",
+        ort::ep::CoreML::default()
+            .with_model_format(ort::ep::coreml::ModelFormat::MLProgram)
+            .with_compute_units(ort::ep::coreml::ComputeUnits::All)
+            // Core ML compiles the model on first use; keep that for next time.
+            .with_model_cache_dir(model.with_extension("coreml").display())
+            .build(),
+    ));
+    #[allow(unreachable_code)]
+    None
 }
 
 fn class() -> ParamSpec {

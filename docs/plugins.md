@@ -72,6 +72,12 @@ aperio models download   # fetch and verify missing models (~400 MB)
 
 A layer whose model isn't downloaded is reported as skipped. It stays in the sidecar.
 
+The models run on the GPU where ONNX Runtime has a provider for it: DirectML on Windows and Core ML on macOS (the GPU and Neural Engine). If the GPU can't take a model, it runs on the CPU instead. Linux runs on the CPU for now. Set `APERIO_AI_CPU=1` to skip the GPU, for example to compare results or work around a driver problem. To see where the models run and how long a mask takes:
+
+```sh
+aperio models bench photo.jpg
+```
+
 ## Sky replacement
 
 `org.aperio.sky` ([`plugins/sky`](../plugins/sky/src/lib.rs)) is an operation that paints a sky photo of the user's choice; the layer's mask (normally the AI sky mask) decides where it shows. It uses `apply_masked` to fit the new sky between the top of the frame and the horizon the mask shows, and it leaves out the bottom of the sky photo once its own ground or skyline starts. Along the skyline, where the AI mask is unsure, pixels that look like the old sky are blended in as more sky than the mask says, so haze and gaps between leaves don't show a pale fringe.

@@ -19,7 +19,7 @@ A free, open-source photo editor with AI-assisted tools that runs entirely on yo
 
 ## Building
 
-You need [Rust](https://rustup.rs) 1.90 or newer, Node.js 20 or newer, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+You need [Rust](https://rustup.rs) 1.90 or newer, Node.js 20 or newer, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform. On Linux, the prebuilt ONNX Runtime used for the AI masks needs glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or later).
 
 ```sh
 cd app
