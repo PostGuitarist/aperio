@@ -130,26 +130,28 @@ impl Segment {
 fn load(path: &Path) -> Result<(Session, &'static str)> {
     let gpus = gpu_providers(path)
         .into_iter()
-        .map(|(name, tag, provider)| (name, tag, Some(provider)));
-    first_that_loads(path, gpus.chain([("CPU", "cpu", None)]), build).map_err(|e| {
+        .map(|(name, remember, provider)| (name, remember, Some(provider)));
+    first_that_loads(path, gpus.chain([("CPU", None, None)]), build).map_err(|e| {
         PluginError::ModelUnavailable(format!("couldn't load {}: {e}", path.display()))
     })
 }
 
-/// Try `candidates` in order and return the first session `build` makes.
-/// Compiling a model for a GPU provider can take a minute before it fails
-/// (Core ML can't convert every network), so a failure is remembered in a
-/// file next to the model and that provider is skipped from then on. Delete
-/// `<model>.<tag>.unsupported` to try it again.
+/// Try `candidates` (name, tag to remember a failure by, provider) in order
+/// and return the first session `build` makes. Compiling a model for Core ML
+/// can take a minute before it fails (it can't convert every network), so
+/// for a provider with a tag a failure is remembered in a file next to the
+/// model and the provider is skipped from then on. Delete
+/// `<model>.<tag>.unsupported` to try it again. Failures that are quick and
+/// may not last, such as no GPU being found, aren't remembered.
 fn first_that_loads<P, S>(
     path: &Path,
-    candidates: impl IntoIterator<Item = (&'static str, &'static str, Option<P>)>,
+    candidates: impl IntoIterator<Item = (&'static str, Option<&'static str>, Option<P>)>,
     build: impl Fn(&Path, Option<P>) -> std::result::Result<S, ort::Error>,
 ) -> std::result::Result<(S, &'static str), ort::Error> {
     let mut last = None;
     for (name, tag, provider) in candidates {
-        let marker = path.with_extension(format!("{tag}.unsupported"));
-        if provider.is_some() && marker.exists() {
+        let marker = tag.map(|tag| path.with_extension(format!("{tag}.unsupported")));
+        if marker.as_ref().is_some_and(|m| m.exists()) {
             continue;
         }
         let is_gpu = provider.is_some();
@@ -157,13 +159,21 @@ fn first_that_loads<P, S>(
             Ok(session) => return Ok((session, name)),
             Err(e) if is_gpu => {
                 eprintln!("aperio: {name} can't run {}: {e}", path.display());
-                let _ = std::fs::write(&marker, e.to_string());
+                if let Some(marker) = marker {
+                    let _ = std::fs::write(marker, e.to_string());
+                }
             }
             Err(e) => last = Some(e),
         }
     }
     Err(last.unwrap_or_else(|| ort::Error::new("no way to run the model")))
 }
+
+type GpuProvider = (
+    &'static str,
+    Option<&'static str>,
+    ort::ep::ExecutionProviderDispatch,
+);
 
 fn build(path: &Path, gpu: Option<ort::ep::ExecutionProviderDispatch>) -> ort::Result<Session> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -180,40 +190,30 @@ fn build(path: &Path, gpu: Option<ort::ep::ExecutionProviderDispatch>) -> ort::R
 }
 
 /// This platform's GPU execution providers, best first, with a display name
-/// and a short tag: DirectML on Windows, Core ML on macOS. Nodes a provider
-/// can't run still go to the CPU. Setting `APERIO_AI_CPU=1` skips the GPU,
-/// for comparing results or working around a driver problem.
-fn gpu_providers(
-    model: &Path,
-) -> Vec<(
-    &'static str,
-    &'static str,
-    ort::ep::ExecutionProviderDispatch,
-)> {
+/// and the tag a failure is remembered by (see [`first_that_loads`]):
+/// DirectML on Windows, Core ML on macOS. Nodes a provider can't run still
+/// go to the CPU. Setting `APERIO_AI_CPU=1` skips the GPU, for comparing
+/// results or working around a driver problem.
+fn gpu_providers(model: &Path) -> Vec<GpuProvider> {
     if std::env::var_os("APERIO_AI_CPU").is_some_and(|v| v != "0") {
         return Vec::new();
     }
     let _ = model;
     #[cfg(windows)]
-    return vec![("DirectML", "directml", ort::ep::DirectML::default().build())];
+    return vec![("DirectML", None, ort::ep::DirectML::default().build())];
     #[cfg(target_os = "macos")]
     {
         use ort::ep::coreml::{ComputeUnits, ModelFormat};
-        // ML Program is Core ML's newer format; the older neural network
-        // format can convert some networks it can't.
-        let coreml = |tag: &'static str, format| {
-            let provider = ort::ep::CoreML::default()
-                .with_model_format(format)
-                .with_compute_units(ComputeUnits::All)
-                // Core ML compiles the model on first use; keep that for next time.
-                .with_model_cache_dir(model.with_extension(tag).display())
-                .build();
-            ("Core ML", tag, provider)
-        };
-        return vec![
-            coreml("coreml", ModelFormat::MLProgram),
-            coreml("coreml-nn", ModelFormat::NeuralNetwork),
-        ];
+        // Only Core ML's ML Program format: the older neural network format
+        // takes BiRefNet but splits it with the CPU so much that it ran
+        // several times slower than the CPU alone.
+        let provider = ort::ep::CoreML::default()
+            .with_model_format(ModelFormat::MLProgram)
+            .with_compute_units(ComputeUnits::All)
+            // Core ML compiles the model on first use; keep that for next time.
+            .with_model_cache_dir(model.with_extension("coreml").display())
+            .build();
+        return vec![("Core ML", Some("coreml"), provider)];
     }
     #[allow(unreachable_code)]
     Vec::new()
@@ -307,24 +307,20 @@ mod tests {
         };
         let candidates = || {
             [
-                ("A", "a", Some(1u8)),
-                ("B", "b", Some(2)),
-                ("CPU", "cpu", None),
+                ("A", Some("a"), Some(1u8)),
+                ("B", None, Some(1)),
+                ("CPU", None, None),
             ]
         };
-        assert_eq!(
-            first_that_loads(&model, candidates(), build).unwrap().1,
-            "B"
-        );
+        let loaded = |c| first_that_loads(&model, c, build).unwrap().1;
+        assert_eq!(loaded(candidates()), "CPU");
         assert!(dir.join("m.a.unsupported").exists());
-        // The failed provider isn't tried again.
-        assert_eq!(
-            first_that_loads(&model, candidates(), build).unwrap().1,
-            "B"
-        );
-        assert_eq!(*tries.borrow(), [Some(1), Some(2), Some(2)]);
+        // A remembered failure isn't tried again; one without a tag is.
+        assert_eq!(loaded(candidates()), "CPU");
+        assert_eq!(*tries.borrow(), [Some(1), Some(1), None, Some(1), None]);
         std::fs::remove_dir_all(dir).unwrap();
     }
+
     use serde_json::json;
 
     fn flat(w: u32, h: u32) -> Vec<[f32; 4]> {
