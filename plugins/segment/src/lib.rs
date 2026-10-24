@@ -19,9 +19,9 @@
 pub mod models;
 mod refine;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use aperio_plugin::{
     Image, ModelInfo, ParamSpec, Plugin, PluginError, PluginInfo, Provides, Result, API_VERSION,
@@ -42,7 +42,14 @@ pub struct Segment {
     /// Loaded networks, by model id. Loading takes a second or two, so each
     /// is loaded on first use and kept.
     sessions: Mutex<HashMap<&'static str, (Session, &'static str)>>,
+    /// Recent network outputs, so variants of one mask (a subject and its
+    /// inverse, the background) and a mask computed ahead of time by
+    /// [`Segment::prepare`] don't run the network again.
+    outputs: Mutex<VecDeque<(u64, Arc<Vec<f32>>)>>,
 }
+
+/// How many network outputs to keep (each is at most 4 MB).
+const OUTPUT_CACHE: usize = 4;
 
 impl Segment {
     /// Use models from `dir` (see [`models::default_dir`]).
@@ -50,6 +57,7 @@ impl Segment {
         Self {
             dir: dir.into(),
             sessions: Mutex::new(HashMap::new()),
+            outputs: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -66,9 +74,33 @@ impl Segment {
         devices
     }
 
+    /// Run the installed models on `source` ahead of time (sky first, as it's
+    /// quick), so AI masks for this photo are ready when they're asked for.
+    /// Stops early if `keep_going` turns false, for example when another
+    /// photo is opened.
+    pub fn prepare(&self, source: Image<'_>, keep_going: impl Fn() -> bool) {
+        for model in [models::SKY, models::SUBJECT] {
+            if !keep_going() || !model.is_installed(&self.dir) {
+                continue;
+            }
+            let _ = self.infer(model, source);
+        }
+    }
+
     /// Run `model` on `source` and return its probability map at the
     /// network's resolution.
-    fn infer(&self, model: Model, source: Image<'_>) -> Result<Vec<f32>> {
+    fn infer(&self, model: Model, source: Image<'_>) -> Result<Arc<Vec<f32>>> {
+        let key = fingerprint(model.id, source);
+        let cached = || {
+            let outputs = self.outputs.lock().unwrap();
+            outputs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, o)| o.clone())
+        };
+        if let Some(out) = cached() {
+            return Ok(out);
+        }
         let path = model.path(&self.dir);
         if !model.is_installed(&self.dir) {
             return Err(PluginError::ModelUnavailable(format!(
@@ -96,6 +128,10 @@ impl Segment {
             .map_err(|e| PluginError::Failed(e.to_string()))?;
 
         let mut sessions = self.sessions.lock().unwrap();
+        // Another thread may have run this while we waited for the lock.
+        if let Some(out) = cached() {
+            return Ok(out);
+        }
         if !sessions.contains_key(model.id) {
             sessions.insert(model.id, load(&path)?);
         }
@@ -112,17 +148,40 @@ impl Segment {
                 model.name
             )));
         }
-        Ok(data[..plane]
-            .iter()
-            .map(|&v| {
-                if model.logits {
-                    1.0 / (1.0 + (-v).exp())
-                } else {
-                    v.clamp(0.0, 1.0)
-                }
-            })
-            .collect())
+        let out: Arc<Vec<f32>> = Arc::new(
+            data[..plane]
+                .iter()
+                .map(|&v| {
+                    if model.logits {
+                        1.0 / (1.0 + (-v).exp())
+                    } else {
+                        v.clamp(0.0, 1.0)
+                    }
+                })
+                .collect(),
+        );
+        let mut outputs = self.outputs.lock().unwrap();
+        if outputs.len() == OUTPUT_CACHE {
+            outputs.pop_front();
+        }
+        outputs.push_back((key, out.clone()));
+        Ok(out)
     }
+}
+
+/// Identifies a model run: the model and the image (its size plus a sample
+/// of its pixels, enough to tell photos and preview sizes apart).
+fn fingerprint(model: &str, source: Image<'_>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (model, source.width, source.height).hash(&mut h);
+    let step = (source.pixels.len() / 4096).max(1);
+    for px in source.pixels.iter().step_by(step) {
+        for c in px {
+            c.to_bits().hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// Load a model, on the GPU if one of this platform's GPU execution
@@ -422,6 +481,10 @@ mod tests {
             .mask(&json!({"class": "sky", "invert": true}), img)
             .unwrap();
         assert!((inverted[0] - (1.0 - sky[0])).abs() < 1e-6);
+        // The inverse reused the network's output; preparing adds the subject.
+        assert_eq!(plugin.outputs.lock().unwrap().len(), 1);
+        plugin.prepare(img, || true);
+        assert_eq!(plugin.outputs.lock().unwrap().len(), 2);
         if models::FAST_SUBJECT.is_installed(plugin.models_dir()) {
             let fast = plugin
                 .mask(&json!({"class": "subject", "detail": "fast"}), img)

@@ -1,6 +1,7 @@
 mod view;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
@@ -20,9 +21,37 @@ const PREVIEW_QUALITY: u8 = 85;
 struct AppState {
     /// Shared with blocking render threads; created on first use.
     renderer: Arc<Mutex<Option<Renderer>>>,
+    /// The bundled plugins, shared by the renderer and background work.
+    plugins: Plugins,
     session: Mutex<Option<Session>>,
     /// Steps the last preview left out, for the UI to explain.
     skipped: Mutex<Vec<SkippedStep>>,
+}
+
+struct Plugins {
+    host: Arc<Host>,
+    segment: Arc<aperio_plugin_segment::Segment>,
+    /// Bumped each time a photo is opened, so background work for the
+    /// previous photo stops.
+    photo: Arc<AtomicU64>,
+}
+
+impl Default for Plugins {
+    fn default() -> Self {
+        let segment = Arc::new(aperio_plugin_segment::Segment::new(models::default_dir()));
+        let mut host = Host::new();
+        host.register(segment.clone())
+            .expect("bundled plugins register");
+        host.register(aperio_plugin_sky::SkyReplace::new())
+            .expect("bundled plugins register");
+        host.register(aperio_plugin_vignette::Vignette)
+            .expect("bundled plugins register");
+        Self {
+            host: Arc::new(host),
+            segment,
+            photo: Arc::new(AtomicU64::new(0)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +133,7 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
         preview_height: preview.height,
         doc: doc.clone(),
     };
+    prepare_ai_masks(&state.plugins, &preview);
     *state.session.lock().unwrap() = Some(Session {
         source,
         full,
@@ -111,6 +141,23 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
         doc,
     });
     Ok(opened)
+}
+
+/// Start the AI models on a new photo's preview in the background, so its
+/// AI masks are usually ready by the time they're asked for. Only runs
+/// models that are downloaded, and stops if another photo is opened.
+fn prepare_ai_masks(plugins: &Plugins, preview: &LinearImage) {
+    let photo = plugins.photo.fetch_add(1, Ordering::SeqCst) + 1;
+    let (segment, current) = (plugins.segment.clone(), plugins.photo.clone());
+    let preview = preview.clone();
+    std::thread::spawn(move || {
+        let source = aperio_plugin::Image {
+            width: preview.width,
+            height: preview.height,
+            pixels: &preview.pixels,
+        };
+        segment.prepare(source, || current.load(Ordering::SeqCst) == photo);
+    });
 }
 
 fn load(path: &Path) -> CmdResult<(LinearImage, EditDocument)> {
@@ -201,30 +248,19 @@ async fn with_renderer<T: Send + 'static>(
     f: impl FnOnce(&Renderer) -> T + Send + 'static,
 ) -> CmdResult<T> {
     let renderer = state.renderer.clone();
+    let host = state.plugins.host.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut renderer = renderer.lock().unwrap();
-        f(renderer.get_or_insert_with(|| Renderer::new().with_plugins(Arc::new(plugins()))))
+        f(renderer.get_or_insert_with(|| Renderer::new().with_plugins(host)))
     })
     .await
     .map_err(err)
 }
 
-/// The plugins built into the app.
-fn plugins() -> Host {
-    let mut host = Host::new();
-    host.register(aperio_plugin_segment::Segment::new(models::default_dir()))
-        .expect("bundled plugins register");
-    host.register(aperio_plugin_sky::SkyReplace::new())
-        .expect("bundled plugins register");
-    host.register(aperio_plugin_vignette::Vignette)
-        .expect("bundled plugins register");
-    host
-}
-
 /// Installed plugins and what they provide, for the UI.
 #[tauri::command]
-fn list_plugins() -> Vec<PluginInfo> {
-    plugins().plugins().cloned().collect()
+fn list_plugins(state: State<'_, AppState>) -> Vec<PluginInfo> {
+    state.plugins.host.plugins().cloned().collect()
 }
 
 #[derive(Serialize)]
