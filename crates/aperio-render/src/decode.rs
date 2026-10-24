@@ -27,7 +27,14 @@ pub fn decode(path: &Path) -> Result<LinearImage> {
 }
 
 fn decode_raster(path: &Path) -> Result<LinearImage> {
-    let img = image::open(path)?.into_rgba32f();
+    use image::ImageDecoder;
+    let mut decoder = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    let img = img.into_rgba32f();
     let (width, height) = img.dimensions();
     let pixels = img
         .pixels()
@@ -75,8 +82,8 @@ fn decode_raw(path: &Path) -> Result<LinearImage> {
             ))
         }
     };
-    // TODO: apply `raw.orientation` once rotation lands with crop (step 3).
-    Ok(LinearImage::new(width as u32, height as u32, pixels))
+    let (transpose, hflip, vflip) = raw.orientation.to_flips();
+    Ok(LinearImage::new(width as u32, height as u32, pixels).orient(transpose, hflip, vflip))
 }
 
 #[cfg(test)]

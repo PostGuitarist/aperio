@@ -72,8 +72,8 @@ Each operation has an `op` tag. Built-in operations:
 | `contrast` | `amount`, -1 to 1 |
 | `white_balance` | `temperature_k`, `tint` |
 | `color` | `saturation`, `vibrance`, each -1 to 1 |
-| `curve` | `channel` (`rgb`, `red`, `green`, `blue`, `luma`), `points` as `[x, y]` pairs in 0–1 |
-| `crop` | `x`, `y`, `width`, `height` normalized to the source, `angle_deg` |
+| `curve` | `channel` (`rgb`, `red`, `green`, `blue`, `luma`), `points` as `[x, y]` pairs in 0–1. Points are joined with a monotone cubic and act on sRGB-encoded values; `luma` scales all three channels together so hue is kept. |
+| `crop` | `x`, `y`, `width`, `height` normalized to the oriented source, and `angle_deg` rotating the rectangle around its center. Applied after every other operation; only the last crop counts. |
 | `plugin` | `plugin` id, `version`, free-form `params` |
 
 ## Masks

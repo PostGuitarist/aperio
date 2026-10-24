@@ -1,6 +1,6 @@
 use aperio_core::EditDocument;
 
-use crate::adjust::{apply_all, compile, AdjustOp, Skipped};
+use crate::adjust::{compile, Program, Skipped};
 use crate::{Error, LinearImage, Result};
 
 /// Pixels processed per GPU pass. 4M pixels is 64 MiB of RGBA f32, well under
@@ -63,20 +63,24 @@ impl Renderer {
         self.gpu.is_some()
     }
 
-    /// Render `doc` onto `img` in place. Returns the operations that this
+    /// Render `doc` onto `img`: per-pixel adjustments first, then the crop,
+    /// which can change the image size. Returns the operations that this
     /// version cannot render yet.
     pub fn render(&self, doc: &EditDocument, img: &mut LinearImage) -> Vec<Skipped> {
-        let (ops, skipped) = compile(doc);
-        if !ops.is_empty() {
+        let program = compile(doc);
+        if !program.ops.is_empty() {
             match &self.gpu {
-                Some(gpu) => gpu.run(&ops, &mut img.pixels),
+                Some(gpu) => gpu.run(&program, &mut img.pixels),
                 None => img
                     .pixels
                     .iter_mut()
-                    .for_each(|px| *px = apply_all(&ops, *px)),
+                    .for_each(|px| *px = program.apply(*px)),
             }
         }
-        skipped
+        if let Some(rect) = program.crop {
+            *img = img.crop(rect);
+        }
+        program.skipped
     }
 }
 
@@ -121,7 +125,8 @@ impl Gpu {
         })
     }
 
-    fn run(&self, ops: &[AdjustOp], pixels: &mut [[f32; 4]]) {
+    fn run(&self, program: &Program, pixels: &mut [[f32; 4]]) {
+        let ops = &program.ops;
         use wgpu::util::DeviceExt;
 
         let ops_buf = self
@@ -129,6 +134,19 @@ impl Gpu {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("ops"),
                 contents: bytemuck::cast_slice(ops),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        // Bindings can't be empty, so programs without curves get one dummy table.
+        let luts: &[f32] = if program.luts.is_empty() {
+            &[0.0]
+        } else {
+            &program.luts
+        };
+        let luts_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("luts"),
+                contents: bytemuck::cast_slice(luts),
                 usage: wgpu::BufferUsages::STORAGE,
             });
         let chunk_bytes = (CHUNK_PIXELS.min(pixels.len()) * 16) as u64;
@@ -176,6 +194,10 @@ impl Gpu {
                         binding: 2,
                         resource: storage.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: luts_buf.as_entire_binding(),
+                    },
                 ],
             });
 
@@ -215,7 +237,7 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aperio_core::{Operation, SourceRef};
+    use aperio_core::{ops::CurveChannel, Operation, SourceRef};
 
     fn gradient(n: u32) -> LinearImage {
         let pixels = (0..n * n)
@@ -243,6 +265,18 @@ mod tests {
             Operation::Color {
                 saturation: 0.2,
                 vibrance: 0.4,
+            },
+            Operation::Curve {
+                channel: CurveChannel::Rgb,
+                points: vec![[0.0, 0.05], [0.4, 0.5], [1.0, 0.95]],
+            },
+            Operation::Curve {
+                channel: CurveChannel::Luma,
+                points: vec![[0.0, 0.0], [0.6, 0.5], [1.0, 1.0]],
+            },
+            Operation::Curve {
+                channel: CurveChannel::Blue,
+                points: vec![[0.0, 0.1], [1.0, 0.9]],
             },
         ];
         d
@@ -279,5 +313,25 @@ mod tests {
         d.layers[0].operations.clear();
         Renderer::new().render(&d, &mut img);
         assert_eq!(img, before);
+    }
+
+    #[test]
+    fn crop_runs_after_adjustments() {
+        let mut d = doc();
+        d.layers[0].operations = vec![
+            Operation::Exposure { ev: 1.0 },
+            Operation::Crop {
+                x: 0.0,
+                y: 0.0,
+                width: 0.5,
+                height: 0.25,
+                angle_deg: 0.0,
+            },
+        ];
+        let src = gradient(8);
+        let mut img = src.clone();
+        Renderer::cpu().render(&d, &mut img);
+        assert_eq!((img.width, img.height), (4, 2));
+        assert_eq!(img.pixels[0][0], src.pixels[0][0] * 2.0);
     }
 }

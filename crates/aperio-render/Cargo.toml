@@ -17,3 +17,6 @@ pollster = "1"
 rawler = { version = "0.8", default-features = false }
 thiserror.workspace = true
 wgpu = "30"
+
+[dev-dependencies]
+serde_json = "1"

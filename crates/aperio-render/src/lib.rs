@@ -9,13 +9,16 @@
 
 pub mod adjust;
 pub mod color;
+pub mod curve;
 pub mod decode;
 pub mod export;
+pub mod geometry;
 mod gpu;
 
-pub use adjust::{AdjustOp, Skipped};
+pub use adjust::{compile, AdjustOp, Program, Skipped};
 pub use decode::decode;
 pub use export::{export, jpeg_bytes, ExportFormat};
+pub use geometry::CropRect;
 pub use gpu::Renderer;
 
 /// A decoded image in linear light, RGBA, row-major.
