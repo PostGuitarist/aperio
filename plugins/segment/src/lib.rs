@@ -17,7 +17,7 @@ pub mod models;
 mod refine;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use aperio_plugin::{
@@ -124,25 +124,48 @@ impl Segment {
     }
 }
 
-/// Load a model, on the GPU if this platform's GPU execution provider can
-/// take it, otherwise on the CPU. Returns the session and where it runs.
-fn load(path: &std::path::Path) -> Result<(Session, &'static str)> {
-    if let Some((name, provider)) = gpu_provider(path) {
-        match build(path, Some(provider)) {
-            Ok(session) => return Ok((session, name)),
-            Err(e) => eprintln!("aperio: {name} unavailable, running AI masks on the CPU ({e})"),
-        }
-    }
-    let session = build(path, None).map_err(|e| {
+/// Load a model, on the GPU if one of this platform's GPU execution
+/// providers can take it, otherwise on the CPU. Returns the session and
+/// where it runs.
+fn load(path: &Path) -> Result<(Session, &'static str)> {
+    let gpus = gpu_providers(path)
+        .into_iter()
+        .map(|(name, tag, provider)| (name, tag, Some(provider)));
+    first_that_loads(path, gpus.chain([("CPU", "cpu", None)]), build).map_err(|e| {
         PluginError::ModelUnavailable(format!("couldn't load {}: {e}", path.display()))
-    })?;
-    Ok((session, "CPU"))
+    })
 }
 
-fn build(
-    path: &std::path::Path,
-    gpu: Option<ort::ep::ExecutionProviderDispatch>,
-) -> ort::Result<Session> {
+/// Try `candidates` in order and return the first session `build` makes.
+/// Compiling a model for a GPU provider can take a minute before it fails
+/// (Core ML can't convert every network), so a failure is remembered in a
+/// file next to the model and that provider is skipped from then on. Delete
+/// `<model>.<tag>.unsupported` to try it again.
+fn first_that_loads<P, S>(
+    path: &Path,
+    candidates: impl IntoIterator<Item = (&'static str, &'static str, Option<P>)>,
+    build: impl Fn(&Path, Option<P>) -> std::result::Result<S, ort::Error>,
+) -> std::result::Result<(S, &'static str), ort::Error> {
+    let mut last = None;
+    for (name, tag, provider) in candidates {
+        let marker = path.with_extension(format!("{tag}.unsupported"));
+        if provider.is_some() && marker.exists() {
+            continue;
+        }
+        let is_gpu = provider.is_some();
+        match build(path, provider) {
+            Ok(session) => return Ok((session, name)),
+            Err(e) if is_gpu => {
+                eprintln!("aperio: {name} can't run {}: {e}", path.display());
+                let _ = std::fs::write(&marker, e.to_string());
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| ort::Error::new("no way to run the model")))
+}
+
+fn build(path: &Path, gpu: Option<ort::ep::ExecutionProviderDispatch>) -> ort::Result<Session> {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let mut builder = Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -156,31 +179,44 @@ fn build(
     builder.commit_from_file(path)
 }
 
-/// This platform's GPU execution provider and its name: DirectML on
-/// Windows, Core ML on macOS. Nodes it can't run still go to the CPU.
-/// Setting `APERIO_AI_CPU=1` skips the GPU, for comparing results or working
-/// around a driver problem.
-fn gpu_provider(
-    model: &std::path::Path,
-) -> Option<(&'static str, ort::ep::ExecutionProviderDispatch)> {
+/// This platform's GPU execution providers, best first, with a display name
+/// and a short tag: DirectML on Windows, Core ML on macOS. Nodes a provider
+/// can't run still go to the CPU. Setting `APERIO_AI_CPU=1` skips the GPU,
+/// for comparing results or working around a driver problem.
+fn gpu_providers(
+    model: &Path,
+) -> Vec<(
+    &'static str,
+    &'static str,
+    ort::ep::ExecutionProviderDispatch,
+)> {
     if std::env::var_os("APERIO_AI_CPU").is_some_and(|v| v != "0") {
-        return None;
+        return Vec::new();
     }
     let _ = model;
     #[cfg(windows)]
-    return Some(("DirectML", ort::ep::DirectML::default().build()));
+    return vec![("DirectML", "directml", ort::ep::DirectML::default().build())];
     #[cfg(target_os = "macos")]
-    return Some((
-        "Core ML",
-        ort::ep::CoreML::default()
-            .with_model_format(ort::ep::coreml::ModelFormat::MLProgram)
-            .with_compute_units(ort::ep::coreml::ComputeUnits::All)
-            // Core ML compiles the model on first use; keep that for next time.
-            .with_model_cache_dir(model.with_extension("coreml").display())
-            .build(),
-    ));
+    {
+        use ort::ep::coreml::{ComputeUnits, ModelFormat};
+        // ML Program is Core ML's newer format; the older neural network
+        // format can convert some networks it can't.
+        let coreml = |tag: &'static str, format| {
+            let provider = ort::ep::CoreML::default()
+                .with_model_format(format)
+                .with_compute_units(ComputeUnits::All)
+                // Core ML compiles the model on first use; keep that for next time.
+                .with_model_cache_dir(model.with_extension(tag).display())
+                .build();
+            ("Core ML", tag, provider)
+        };
+        return vec![
+            coreml("coreml", ModelFormat::MLProgram),
+            coreml("coreml-nn", ModelFormat::NeuralNetwork),
+        ];
+    }
     #[allow(unreachable_code)]
-    None
+    Vec::new()
 }
 
 fn class() -> ParamSpec {
@@ -255,6 +291,40 @@ fn to_srgb(v: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembers_gpu_providers_that_fail() {
+        let dir = std::env::temp_dir().join(format!("aperio-providers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("m.onnx");
+        let tries = std::cell::RefCell::new(Vec::new());
+        let build = |_: &Path, p: Option<u8>| {
+            tries.borrow_mut().push(p);
+            match p {
+                Some(1) => Err(ort::Error::new("can't convert")),
+                _ => Ok(()),
+            }
+        };
+        let candidates = || {
+            [
+                ("A", "a", Some(1u8)),
+                ("B", "b", Some(2)),
+                ("CPU", "cpu", None),
+            ]
+        };
+        assert_eq!(
+            first_that_loads(&model, candidates(), build).unwrap().1,
+            "B"
+        );
+        assert!(dir.join("m.a.unsupported").exists());
+        // The failed provider isn't tried again.
+        assert_eq!(
+            first_that_loads(&model, candidates(), build).unwrap().1,
+            "B"
+        );
+        assert_eq!(*tries.borrow(), [Some(1), Some(2), Some(2)]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use serde_json::json;
 
     fn flat(w: u32, h: u32) -> Vec<[f32; 4]> {

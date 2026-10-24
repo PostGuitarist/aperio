@@ -72,7 +72,7 @@ aperio models download   # fetch and verify missing models (~400 MB)
 
 A layer whose model isn't downloaded is reported as skipped. It stays in the sidecar.
 
-The models run on the GPU where ONNX Runtime has a provider for it: DirectML on Windows and Core ML on macOS (the GPU and Neural Engine). If the GPU can't take a model, it runs on the CPU instead. Linux runs on the CPU for now. Set `APERIO_AI_CPU=1` to skip the GPU, for example to compare results or work around a driver problem. To see where the models run and how long a mask takes:
+The models run on the GPU where ONNX Runtime has a provider for it: DirectML on Windows and Core ML on macOS (the GPU and Neural Engine). If the GPU can't take a model, it runs on the CPU instead, and that's remembered in a `<model>.<provider>.unsupported` file next to the model so the attempt isn't repeated (Core ML can spend a minute trying before it gives up). Delete the file to try again, for example after an update. Linux runs on the CPU for now. Set `APERIO_AI_CPU=1` to skip the GPU, for example to compare results or work around a driver problem. To see where the models run and how long a mask takes:
 
 ```sh
 aperio models bench photo.jpg
