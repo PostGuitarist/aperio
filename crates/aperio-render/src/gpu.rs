@@ -1,4 +1,7 @@
-use aperio_core::EditDocument;
+use std::sync::Arc;
+
+use aperio_core::{EditDocument, Mask};
+use aperio_plugin::{Host, Image, ImageMut};
 
 use crate::adjust::{blend, compile, LayerProgram, Program, Skipped};
 use crate::masks::rasterize;
@@ -17,7 +20,11 @@ const MAX_GROUPS_X: u32 = 65535;
 /// GPU driver.
 pub struct Renderer {
     gpu: Option<Gpu>,
+    plugins: Option<Arc<Host>>,
 }
+
+/// A layer ready to run, with its mask rasterized at the image's size.
+type Prepared = (LayerProgram, Option<Arc<Vec<f32>>>);
 
 struct Gpu {
     device: wgpu::Device,
@@ -45,7 +52,10 @@ impl Renderer {
     /// Try to set up the GPU, falling back to the CPU if that fails.
     pub fn new() -> Self {
         match pollster::block_on(Gpu::new()) {
-            Ok(gpu) => Self { gpu: Some(gpu) },
+            Ok(gpu) => Self {
+                gpu: Some(gpu),
+                plugins: None,
+            },
             Err(e) => {
                 log::warn!("rendering on the CPU: {e}");
                 Self::cpu()
@@ -55,13 +65,28 @@ impl Renderer {
 
     /// A renderer that never touches the GPU.
     pub fn cpu() -> Self {
-        Self { gpu: None }
+        Self {
+            gpu: None,
+            plugins: None,
+        }
+    }
+
+    /// Render plugin operations and masks with these plugins. Without a
+    /// host, plugin steps are skipped and reported.
+    pub fn with_plugins(mut self, host: Arc<Host>) -> Self {
+        self.plugins = Some(host);
+        self
+    }
+
+    pub fn plugins(&self) -> Option<&Host> {
+        self.plugins.as_deref()
     }
 
     /// Set up the GPU or fail. Mostly useful for tests.
     pub fn gpu() -> Result<Self> {
         Ok(Self {
             gpu: Some(pollster::block_on(Gpu::new())?),
+            plugins: None,
         })
     }
 
@@ -71,49 +96,166 @@ impl Renderer {
 
     /// Render `doc` onto `img`: each layer's adjustments blended over the
     /// layers below through its mask, then the crop, which can change the
-    /// image size. Returns the operations that this version cannot render yet.
+    /// image size. Returns the steps that couldn't be rendered (a plugin
+    /// that isn't installed, for example), which were left out.
     pub fn render(&self, doc: &EditDocument, img: &mut LinearImage) -> Vec<Skipped> {
         let mut program = compile(doc);
-        // Rasterize masks at this image's size. Plugin masks (AI) can't be
-        // generated yet, so their layers are left out and reported.
-        let mut layers = Vec::new();
+        let mut skipped = std::mem::take(&mut program.skipped);
+        // Plugin masks are generated from the photo before any adjustments.
+        let source = program
+            .layers
+            .iter()
+            .any(|l| matches!(l.mask, Some(Mask::Plugin { .. })))
+            .then(|| img.clone());
+
+        let mut layers: Vec<Prepared> = Vec::new();
         for layer in std::mem::take(&mut program.layers) {
+            if layer.opacity <= 0.0 || (layer.op_count == 0 && layer.plugin_steps.is_empty()) {
+                continue;
+            }
             let mask = match &layer.mask {
                 None => None,
-                Some(m) => match rasterize(m, img.width, img.height) {
-                    Some(weights) => Some(weights),
-                    None => {
-                        program.skipped.push(Skipped {
-                            layer: layer.index,
-                            op: "plugin_mask",
-                        });
-                        continue;
+                Some(Mask::Plugin {
+                    plugin,
+                    version,
+                    params,
+                }) => {
+                    let src = source.as_ref().expect("source kept for plugin masks");
+                    match self.plugin_mask(plugin, version, params, src) {
+                        Ok(m) => Some(m),
+                        Err(reason) => {
+                            skipped.push(Skipped {
+                                layer: layer.index,
+                                op: plugin.clone(),
+                                reason: format!("mask left out: {reason}"),
+                            });
+                            continue;
+                        }
                     }
-                },
+                }
+                Some(m) => rasterize(m, img.width, img.height).map(Arc::new),
             };
-            if layer.op_count > 0 && layer.opacity > 0.0 {
-                layers.push((layer, mask));
+            layers.push((layer, mask));
+        }
+
+        // Runs of plain layers go to the GPU together; a layer with plugin
+        // steps is run on its own copy and blended back on the CPU.
+        let mut start = 0;
+        while start < layers.len() {
+            let end = layers[start..]
+                .iter()
+                .position(|(l, _)| !l.plugin_steps.is_empty())
+                .map_or(layers.len(), |i| start + i);
+            if end > start {
+                self.run_layers(&program, &layers[start..end], &mut img.pixels);
+            }
+            if let Some((layer, mask)) = layers.get(end) {
+                self.run_plugin_layer(&program, layer, mask.as_deref(), img, &mut skipped);
+            }
+            start = end + 1;
+        }
+
+        if let Some(rect) = program.crop {
+            *img = img.crop(rect);
+        }
+        skipped
+    }
+
+    fn plugin_mask(
+        &self,
+        plugin: &str,
+        version: &str,
+        params: &serde_json::Value,
+        source: &LinearImage,
+    ) -> std::result::Result<Arc<Vec<f32>>, String> {
+        let host = self.plugins.as_ref().ok_or("no plugins are loaded")?;
+        let image = Image {
+            width: source.width,
+            height: source.height,
+            pixels: &source.pixels,
+        };
+        host.mask(plugin, version, params, image)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Run a layer that has plugin operations: its per-pixel steps and plugin
+    /// steps in order on a copy, then blend the copy back through the mask.
+    fn run_plugin_layer(
+        &self,
+        program: &Program,
+        layer: &LayerProgram,
+        mask: Option<&Vec<f32>>,
+        img: &mut LinearImage,
+        skipped: &mut Vec<Skipped>,
+    ) {
+        let mut out = img.pixels.clone();
+        let segment = |from: usize, to: usize| LayerProgram {
+            op_start: layer.op_start + from,
+            op_count: to - from,
+            opacity: 1.0,
+            mask: None,
+            plugin_steps: Vec::new(),
+            ..layer.clone()
+        };
+        let mut done = 0;
+        for step in &layer.plugin_steps {
+            if step.at > done {
+                self.run_layers(program, &[(segment(done, step.at), None)], &mut out);
+                done = step.at;
+            }
+            let result = match &self.plugins {
+                None => Err("no plugins are loaded".to_string()),
+                Some(host) => host
+                    .apply(
+                        &step.plugin,
+                        &step.version,
+                        &step.params,
+                        ImageMut {
+                            width: img.width,
+                            height: img.height,
+                            pixels: &mut out,
+                        },
+                        mask.map(|m| m.as_slice()),
+                    )
+                    .map_err(|e| e.to_string()),
+            };
+            if let Err(reason) = result {
+                skipped.push(Skipped {
+                    layer: layer.index,
+                    op: step.plugin.clone(),
+                    reason,
+                });
             }
         }
-        if !layers.is_empty() {
-            match &self.gpu {
-                Some(gpu) => gpu.run(&program, &layers, &mut img.pixels),
-                None => {
-                    for (layer, mask) in &layers {
-                        for (i, px) in img.pixels.iter_mut().enumerate() {
-                            let w = layer.opacity * mask.as_ref().map_or(1.0, |m| m[i]);
-                            if w > 0.0 {
-                                *px = blend(*px, program.apply_layer(layer, *px), w);
-                            }
+        if layer.op_count > done {
+            self.run_layers(program, &[(segment(done, layer.op_count), None)], &mut out);
+        }
+        for (i, (px, new)) in img.pixels.iter_mut().zip(&out).enumerate() {
+            let w = layer.opacity * mask.map_or(1.0, |m| m[i]);
+            if w > 0.0 {
+                *px = blend(*px, *new, w);
+            }
+        }
+    }
+
+    /// Run layers' per-pixel steps, each blended through its mask.
+    fn run_layers(&self, program: &Program, layers: &[Prepared], pixels: &mut [[f32; 4]]) {
+        if layers.iter().all(|(l, _)| l.op_count == 0) {
+            return;
+        }
+        match &self.gpu {
+            Some(gpu) => gpu.run(program, layers, pixels),
+            None => {
+                for (layer, mask) in layers {
+                    for (i, px) in pixels.iter_mut().enumerate() {
+                        let w = layer.opacity * mask.as_ref().map_or(1.0, |m| m[i]);
+                        if w > 0.0 {
+                            *px = blend(*px, program.apply_layer(layer, *px), w);
                         }
                     }
                 }
             }
         }
-        if let Some(rect) = program.crop {
-            *img = img.crop(rect);
-        }
-        program.skipped
     }
 }
 
@@ -158,12 +300,7 @@ impl Gpu {
         })
     }
 
-    fn run(
-        &self,
-        program: &Program,
-        layers: &[(LayerProgram, Option<Vec<f32>>)],
-        pixels: &mut [[f32; 4]],
-    ) {
+    fn run(&self, program: &Program, layers: &[Prepared], pixels: &mut [[f32; 4]]) {
         use wgpu::util::DeviceExt;
 
         let storage_init = |label, contents: &[u8]| {
@@ -432,9 +569,81 @@ mod tests {
         }
     }
 
+    /// Test plugin: its mask selects the left half of the image; its
+    /// operation scales by `gain`.
+    struct Halves;
+
+    impl aperio_plugin::Plugin for Halves {
+        fn info(&self) -> aperio_plugin::PluginInfo {
+            aperio_plugin::PluginInfo {
+                id: "org.example.halves".into(),
+                name: "Halves".into(),
+                version: "1.0.0".into(),
+                api_version: aperio_plugin::API_VERSION,
+                license: "MIT".into(),
+                operation: None,
+                mask: None,
+                models: vec![],
+            }
+        }
+
+        fn apply(
+            &self,
+            params: &serde_json::Value,
+            image: ImageMut<'_>,
+        ) -> aperio_plugin::Result<()> {
+            let g = params["gain"].as_f64().unwrap_or(1.0) as f32;
+            for px in image.pixels {
+                for c in &mut px[..3] {
+                    *c *= g;
+                }
+            }
+            Ok(())
+        }
+
+        fn mask(
+            &self,
+            _: &serde_json::Value,
+            source: Image<'_>,
+        ) -> aperio_plugin::Result<Vec<f32>> {
+            Ok((0..source.width * source.height)
+                .map(|i| {
+                    if i % source.width < source.width / 2 {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                })
+                .collect())
+        }
+    }
+
+    fn with_plugins(r: Renderer) -> Renderer {
+        let mut host = Host::new();
+        host.register(Halves).unwrap();
+        host.register(aperio_plugin_vignette::Vignette).unwrap();
+        r.with_plugins(Arc::new(host))
+    }
+
+    fn halves(params: serde_json::Value) -> Operation {
+        Operation::Plugin {
+            plugin: "org.example.halves".into(),
+            version: "1.0.0".into(),
+            params,
+        }
+    }
+
+    fn flat(n: u32) -> LinearImage {
+        LinearImage::new(n, n, vec![[0.25, 0.25, 0.25, 1.0]; (n * n) as usize])
+    }
+
     #[test]
-    fn plugin_masked_layers_are_skipped() {
+    fn missing_plugins_are_reported_and_left_out() {
         let mut d = doc();
+        d.layers[0].operations = vec![
+            Operation::Exposure { ev: 1.0 },
+            halves(serde_json::json!({"gain": 4})),
+        ];
         let mut ai = Layer::new("AI sky");
         ai.mask = Some(Mask::Plugin {
             plugin: "org.aperio.segment".into(),
@@ -443,15 +652,85 @@ mod tests {
         });
         ai.operations = vec![Operation::Exposure { ev: -1.0 }];
         d.layers.push(ai);
-        let mut img = gradient(4);
-        let skipped = Renderer::cpu().render(&d, &mut img);
+        let mut img = flat(4);
+        let skipped = with_plugins(Renderer::cpu()).render(&d, &mut img);
+        // The base layer's exposure and plugin ran; the AI layer didn't.
+        assert_eq!(img.pixels[0], [2.0, 2.0, 2.0, 1.0]);
+        assert_eq!(skipped.len(), 1);
         assert_eq!(
-            skipped,
-            vec![Skipped {
-                layer: 1,
-                op: "plugin_mask"
-            }]
+            (skipped[0].layer, skipped[0].op.as_str()),
+            (1, "org.aperio.segment")
         );
+        assert!(skipped[0].reason.contains("not installed"), "{skipped:?}");
+
+        let mut img = flat(4);
+        let skipped = Renderer::cpu().render(&d, &mut img);
+        assert_eq!(img.pixels[0], [0.5, 0.5, 0.5, 1.0]);
+        assert_eq!(skipped.len(), 2);
+    }
+
+    #[test]
+    fn plugin_steps_run_in_order_through_the_layer_mask() {
+        let mut d = doc();
+        d.layers[0].operations.clear();
+        let mut left = Layer::new("Left");
+        left.mask = Some(Mask::Plugin {
+            plugin: "org.example.halves".into(),
+            version: "1.0.0".into(),
+            params: serde_json::json!({}),
+        });
+        // Plugin steps sit between per-pixel ones: x2, x3, then a curve that
+        // tops out at 0.5. In order, 0.25 * 2 * 3 = 1.5 is above the curve's
+        // range, so it scales by the curve's end (0.5 sRGB); the other order
+        // would give about 0.64.
+        left.operations = vec![
+            Operation::Exposure { ev: 1.0 },
+            halves(serde_json::json!({"gain": 3})),
+            Operation::Curve {
+                channel: CurveChannel::Rgb,
+                points: vec![[0.0, 0.0], [0.5, 0.5], [1.0, 0.5]],
+            },
+        ];
+        d.layers.push(left);
+        let mut img = flat(4);
+        assert!(with_plugins(Renderer::cpu())
+            .render(&d, &mut img)
+            .is_empty());
+        let expected = 1.5 * crate::color::srgb_to_linear(0.5);
+        assert!(
+            (img.pixels[0][0] - expected).abs() < 1e-4,
+            "{:?}",
+            img.pixels[0]
+        );
+        assert_eq!(img.pixels[3], [0.25, 0.25, 0.25, 1.0]);
+    }
+
+    #[test]
+    fn plugin_layers_match_cpu_on_gpu() {
+        let gpu = match Renderer::gpu() {
+            Ok(gpu) => with_plugins(gpu),
+            Err(e) if std::env::var_os("APERIO_REQUIRE_GPU").is_none() => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+            Err(e) => panic!("{e}"),
+        };
+        let mut d = doc();
+        d.layers[0].operations.push(Operation::Plugin {
+            plugin: aperio_plugin_vignette::ID.into(),
+            version: "1.0.0".into(),
+            params: serde_json::json!({"amount": -0.6}),
+        });
+        d.layers[0].operations.push(Operation::Exposure { ev: 0.3 });
+        let mut a = gradient(64);
+        let mut b = a.clone();
+        assert!(gpu.render(&d, &mut a).is_empty());
+        with_plugins(Renderer::cpu()).render(&d, &mut b);
+        for (x, y) in a.pixels.iter().zip(&b.pixels) {
+            for c in 0..4 {
+                assert!((x[c] - y[c]).abs() < 1e-4, "{x:?} vs {y:?}");
+            }
+        }
     }
 
     #[test]

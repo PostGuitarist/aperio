@@ -5,7 +5,7 @@ This is the plan for v0.1. It records decisions that are expensive to change lat
 ## Goals that shape the design
 
 - **Non-destructive.** Originals are read-only. Every edit is data in a sidecar ([format](sidecar-format.md)).
-- **Local-first.** All processing on the user's machine. No account, no network calls, no telemetry.
+- **Local-first.** All processing on the user's machine. No account, no telemetry, and no network calls except downloading an AI model when the user asks for it.
 - **Cross-platform.** Windows, macOS, and Linux from one codebase. CI checks Linux on every PR; macOS and Windows builds run for release tags or on demand to save Actions minutes.
 - **Modular AI.** AI features are plugins with swappable models.
 
@@ -28,7 +28,11 @@ crates/
   aperio-core/     edit document, operations, masks, sidecar I/O (no GPU, no UI)
   aperio-render/   decode, wgpu adjustment pipeline (with a CPU fallback), export
   aperio-cli/      `aperio render <in> <out>`: headless render using the sidecar
-  aperio-plugin/   (milestone 4) plugin API and host
+  aperio-plugin/   plugin API and host (no renderer dependency)
+plugins/
+  segment/         AI sky and subject masks (ONNX Runtime)
+  sky/             sky replacement
+  vignette/        example third-party plugin
 app/
   src/             TypeScript UI
   src-tauri/       Tauri backend: commands that call into the crates
@@ -45,9 +49,11 @@ docs/
 4. Preview: renders at screen resolution and is shared with the webview as an image. The preview can skip the crop (while the crop tool is open), tint the selected layer's mask red, or hide every adjustment for a before view; on-canvas handles are drawn in the UI over the image, mapped through the crop. Full resolution is used only for export and for 100% zoom tiles.
 5. Export: full-resolution render, converted to the output color space (sRGB by default) and encoded.
 
-## Plugins (milestone 4)
+## Plugins
 
-A plugin declares an id, a version, and what it provides: operations, masks, or both. AI plugins also declare their model files and licenses. In v0.1 plugins are Rust crates built into the app behind a stable trait; loading plugins from outside the build (dynamic libraries or WASM) comes after the API has settled. The bundled sky and subject segmentation plugin is written against the same public API as third-party plugins.
+A plugin declares an id, a version, and what it provides: operations, masks, or both. AI plugins also declare their model files and licenses. In v0.1 plugins are Rust crates built into the app behind a stable trait; loading plugins from outside the build (dynamic libraries or WASM) comes after the API has settled. The bundled sky and subject segmentation plugin is written against the same public API as third-party plugins. See [plugins.md](plugins.md).
+
+The renderer runs layers without plugin operations on the GPU in one pass, as before. A layer with plugin operations runs on a copy of the image: its built-in steps (GPU) and plugin operations (CPU, or the plugin's own accelerator) run in document order, and the copy is blended back through the layer's mask. Plugin masks are generated from the decoded photo before adjustments and cached by the host.
 
 ## Open questions
 

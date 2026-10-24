@@ -10,13 +10,15 @@ publish = false
 
 [dependencies]
 aperio-core.workspace = true
+aperio-plugin.workspace = true
 bytemuck = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 log = "0.4"
 pollster = "1"
 rawler = { version = "0.8", default-features = false }
+serde_json.workspace = true
 thiserror.workspace = true
 wgpu = "30"
 
 [dev-dependencies]
-serde_json = "1"
+aperio-plugin-vignette.workspace = true

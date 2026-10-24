@@ -18,10 +18,11 @@ import {
   writeCrop,
   writeCurve,
 } from "./doc";
+import { buildAi, pluginLayerControls } from "./ai";
 import { aspectFor, boxForAspect, currentBox, fitInside, setBox } from "./overlay";
 import { type Tab, changed, commit, editor, onUpdate, refresh } from "./state";
 
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]) {
+export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]) {
   const e: HTMLElementTagNameMap[K] = Object.assign(document.createElement(tag), props);
   e.append(...children);
   return e;
@@ -44,7 +45,7 @@ interface SliderOptions {
 
 /** A labelled range input. Moving it previews; releasing it commits;
  * double-clicking resets it. Returns a function that re-reads its value. */
-function slider(parent: HTMLElement, o: SliderOptions): () => void {
+export function slider(parent: HTMLElement, o: SliderOptions): () => void {
   const value = h("output");
   const input = h("input", { type: "range", min: String(o.min), max: String(o.max), step: String(o.step) });
   if (o.track) input.classList.add(o.track);
@@ -69,7 +70,7 @@ function slider(parent: HTMLElement, o: SliderOptions): () => void {
   return sync;
 }
 
-function group(parent: HTMLElement, title: string, onReset?: () => void) {
+export function group(parent: HTMLElement, title: string, onReset?: () => void) {
   const head = h("div", { className: "group-head" }, h("h3", {}, title));
   if (onReset) {
     const reset = h("button", { className: "link", type: "button", textContent: "Reset" });
@@ -447,9 +448,8 @@ function buildLayers(root: HTMLElement) {
         paint.classList.toggle("active", !b.erase);
         erase.classList.toggle("active", b.erase);
       });
-    } else if (mask?.kind === "plugin") {
-      body.append(h("p", { className: "hint muted" }, `This mask comes from ${mask.plugin}, which isn't installed. It's kept in the sidecar but not rendered.`));
     }
+    syncProps.push(pluginLayerControls(body, layer));
     if (mask && mask.kind !== "plugin") {
       const show = h("input", { type: "checkbox" });
       show.addEventListener("change", () => {
@@ -464,7 +464,8 @@ function buildLayers(root: HTMLElement) {
 
   return () => {
     drawList();
-    const key = editor.opened ? `${editor.selected}:${layer().mask?.kind ?? "none"}:${layer().name}:${editor.doc.layers.length}` : "";
+    const pluginOps = editor.opened ? layer().operations.filter((o) => o.op === "plugin").length : 0;
+    const key = editor.opened ? `${editor.selected}:${layer().mask?.kind ?? "none"}:${layer().name}:${editor.doc.layers.length}:${pluginOps}` : "";
     if (key !== propsKey) {
       propsKey = key;
       buildProps();
@@ -480,6 +481,7 @@ const TABS: [Tab, string, (root: HTMLElement) => () => void][] = [
   ["curves", "Curves", buildCurves],
   ["crop", "Crop", buildCrop],
   ["layers", "Layers", buildLayers],
+  ["ai", "AI", buildAi],
 ];
 
 export function showTab(tab: Tab) {

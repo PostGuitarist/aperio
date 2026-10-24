@@ -1,0 +1,14 @@
+[package]
+name = "aperio-plugin-sky"
+description = "Sky replacement for Aperio: puts a chosen sky photo behind an AI sky mask"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+aperio-plugin.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+serde_json.workspace = true

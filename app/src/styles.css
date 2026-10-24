@@ -526,6 +526,9 @@ svg.curve .point {
 
 .row button {
   flex: 1;
+  white-space: nowrap;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .check {
@@ -612,5 +615,51 @@ ul.layers .kind.brush {
 }
 
 ul.layers .kind.plugin {
-  background: repeating-linear-gradient(45deg, #3a3d45 0 4px, #2c2f35 4px 8px);
+  background: radial-gradient(circle at 30% 30%, #f2b24c 0 12%, transparent 13%), linear-gradient(160deg, #5d8fe0, #2c2f35);
+}
+
+.statusbar .notice {
+  color: var(--accent);
+}
+
+ul.models {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+ul.models li {
+  display: grid;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+ul.models small {
+  font-size: 11px;
+}
+
+progress {
+  width: 100%;
+  margin-top: 10px;
+  accent-color: var(--accent);
+}
+
+.path-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.file-name {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs button {
+  font-size: 12px;
 }

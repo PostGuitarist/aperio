@@ -2,8 +2,11 @@
 //! crop tool needs the uncropped photo, the mask tools tint the selected
 //! layer's mask, and "before" hides every adjustment.
 
-use aperio_core::{EditDocument, Operation};
-use aperio_render::{compile, masks, LinearImage, Renderer};
+use std::sync::Arc;
+
+use aperio_core::{EditDocument, Mask, Operation};
+use aperio_plugin::Image;
+use aperio_render::{compile, masks, LinearImage, Renderer, Skipped};
 use serde::Deserialize;
 
 /// How the preview should be drawn.
@@ -24,8 +27,14 @@ pub struct View {
 const OVERLAY_COLOR: [f32; 3] = [0.9, 0.02, 0.02];
 const OVERLAY_STRENGTH: f32 = 0.5;
 
-/// Render `doc` onto `img` the way `view` asks.
-pub fn render(renderer: &Renderer, doc: &EditDocument, view: View, img: &mut LinearImage) {
+/// Render `doc` onto `img` the way `view` asks. Returns the steps that
+/// couldn't be rendered.
+pub fn render(
+    renderer: &Renderer,
+    doc: &EditDocument,
+    view: View,
+    img: &mut LinearImage,
+) -> Vec<Skipped> {
     // Crop is applied here rather than by the renderer, so the overlay can be
     // drawn in uncropped coordinates first.
     let crop = compile(doc).crop;
@@ -35,18 +44,41 @@ pub fn render(renderer: &Renderer, doc: &EditDocument, view: View, img: &mut Lin
             layer.enabled = false;
         }
     }
-    renderer.render(&doc, img);
-    if let Some(mask) = view
+    // Plugin masks are generated from the unedited photo, so get the
+    // overlay's weights before rendering (the host caches them anyway).
+    let overlay = view
         .mask_overlay
         .and_then(|i| doc.layers.get(i))
         .and_then(|l| l.mask.as_ref())
-    {
-        if let Some(weights) = masks::rasterize(mask, img.width, img.height) {
-            tint(img, &weights);
-        }
+        .and_then(|mask| weights(renderer, mask, img));
+    let skipped = renderer.render(&doc, img);
+    if let Some(w) = overlay {
+        tint(img, &w);
     }
     if let (true, Some(rect)) = (view.crop, crop) {
         *img = img.crop(rect);
+    }
+    skipped
+}
+
+fn weights(renderer: &Renderer, mask: &Mask, img: &LinearImage) -> Option<Arc<Vec<f32>>> {
+    match mask {
+        Mask::Plugin {
+            plugin,
+            version,
+            params,
+        } => {
+            let source = Image {
+                width: img.width,
+                height: img.height,
+                pixels: &img.pixels,
+            };
+            renderer
+                .plugins()?
+                .mask(plugin, version, params, source)
+                .ok()
+        }
+        m => masks::rasterize(m, img.width, img.height).map(Arc::new),
     }
 }
 
