@@ -142,31 +142,6 @@ pub trait Plugin: Send + Sync {
     }
 }
 
-/// A shared plugin is a plugin, so the app can register one and keep a
-/// handle on it (for example to start work ahead of time).
-impl<P: Plugin + ?Sized> Plugin for std::sync::Arc<P> {
-    fn info(&self) -> PluginInfo {
-        (**self).info()
-    }
-
-    fn apply(&self, params: &Value, image: ImageMut<'_>) -> Result<()> {
-        (**self).apply(params, image)
-    }
-
-    fn apply_masked(
-        &self,
-        params: &Value,
-        image: ImageMut<'_>,
-        mask: Option<&[f32]>,
-    ) -> Result<()> {
-        (**self).apply_masked(params, image, mask)
-    }
-
-    fn mask(&self, params: &Value, source: Image<'_>) -> Result<Vec<f32>> {
-        (**self).mask(params, source)
-    }
-}
-
 /// Whether a document written with plugin version `wanted` can be rendered
 /// by `installed`: the same major version (or the same minor for 0.x), and
 /// installed at least as new.
