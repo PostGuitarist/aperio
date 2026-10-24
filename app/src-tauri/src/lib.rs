@@ -235,6 +235,8 @@ struct ModelStatus {
     source: &'static str,
     size_bytes: u64,
     installed: bool,
+    optional: bool,
+    notice: Option<&'static str>,
 }
 
 /// The AI models and whether each is downloaded.
@@ -250,6 +252,8 @@ fn models_status() -> Vec<ModelStatus> {
             source: m.source,
             size_bytes: m.size_bytes,
             installed: m.is_installed(&dir),
+            optional: m.optional,
+            notice: m.notice,
         })
         .collect()
 }
@@ -261,13 +265,24 @@ struct DownloadProgress {
     total: u64,
 }
 
-/// Download every missing model, reporting progress on `progress`. Only
-/// runs when the user asks for it.
+/// Download the missing models in `ids`, or every missing default (not
+/// optional) model when `ids` is empty, reporting progress on `progress`.
+/// Only runs when the user asks for it.
 #[tauri::command]
-async fn download_models(progress: Channel<DownloadProgress>) -> CmdResult<()> {
+async fn download_models(ids: Vec<String>, progress: Channel<DownloadProgress>) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = models::default_dir();
-        for m in models::ALL.iter().filter(|m| !m.is_installed(&dir)) {
+        let wanted = |m: &models::Model| {
+            if ids.is_empty() {
+                !m.optional
+            } else {
+                ids.iter().any(|id| id == m.id)
+            }
+        };
+        for m in models::ALL
+            .iter()
+            .filter(|m| wanted(m) && !m.is_installed(&dir))
+        {
             let mut last = 0;
             m.download(&dir, |done, total| {
                 // Roughly every 1%, so the channel isn't flooded.

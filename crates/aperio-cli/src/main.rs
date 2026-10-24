@@ -11,7 +11,7 @@ use aperio_render::{decode, export, ExportFormat, Renderer};
 
 const USAGE: &str = "usage: aperio render <input> <output.jpg|png|tiff> [--sidecar <file>]
        aperio plugins
-       aperio models [download]
+       aperio models [download [<model id>]]
        aperio models bench [photo]";
 
 /// The plugins built into this binary.
@@ -26,15 +26,29 @@ fn plugins() -> Host {
     host
 }
 
+/// What `aperio models` should download.
+enum Download<'a> {
+    Nothing,
+    /// The models that aren't optional.
+    Defaults,
+    /// One model, by id.
+    Model(&'a str),
+}
+
 /// `aperio models`: show which AI models are downloaded; with `download`,
-/// fetch the missing ones.
-fn models_command(download: bool) -> Result<(), Box<dyn std::error::Error>> {
+/// fetch the missing default ones, or the one named.
+fn models_command(download: Download) -> Result<(), Box<dyn std::error::Error>> {
+    if let Download::Model(id) = download {
+        if models::find(id).is_none() {
+            return Err(format!("no model called {id}; run `aperio models` for the list").into());
+        }
+    }
     let dir = models::default_dir();
     println!("models folder: {}", dir.display());
     for m in models::ALL {
         let installed = m.is_installed(&dir);
         println!(
-            "  {:<40} {:>4} MB  {}  {}",
+            "  {:<40} {:>4} MB  {}  {}{}",
             m.name,
             m.size_bytes / 1_000_000,
             m.license,
@@ -42,9 +56,22 @@ fn models_command(download: bool) -> Result<(), Box<dyn std::error::Error>> {
                 "installed"
             } else {
                 "not downloaded"
+            },
+            if m.optional {
+                format!(" (optional: aperio models download {})", m.id)
+            } else {
+                String::new()
             }
         );
-        if download && !installed {
+        let wanted = match download {
+            Download::Nothing => false,
+            Download::Defaults => !m.optional,
+            Download::Model(id) => id == m.id,
+        };
+        if wanted && !installed {
+            if let Some(notice) = m.notice {
+                println!("    {notice}");
+            }
             let mut shown = 0;
             m.download(&dir, |done, total| {
                 let pct = done * 100 / total.max(1);
@@ -56,8 +83,8 @@ fn models_command(download: bool) -> Result<(), Box<dyn std::error::Error>> {
             println!("    downloaded and verified");
         }
     }
-    if !download {
-        println!("run `aperio models download` to fetch missing models");
+    if matches!(download, Download::Nothing) {
+        println!("run `aperio models download` to fetch the missing default models");
     }
     Ok(())
 }
@@ -96,13 +123,22 @@ fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
         pixels: &img.pixels,
     };
     println!("{}x{} preview", img.width, img.height);
-    for class in ["sky", "subject"] {
-        let params = serde_json::json!({ "class": class });
+    let mut masks = vec![("sky", "best"), ("subject", "best")];
+    if models::FAST_SUBJECT.is_installed(segment.models_dir()) {
+        masks.push(("subject", "fast"));
+    }
+    for (class, detail) in masks {
+        let params = serde_json::json!({ "class": class, "detail": detail });
+        let label = if detail == "fast" {
+            "subject (fast)"
+        } else {
+            class
+        };
         for run in ["first run", "again"] {
             let started = std::time::Instant::now();
             segment.mask(&params, source)?;
             println!(
-                "  {class:<8} {run:<10} {:>6} ms",
+                "  {label:<15} {run:<10} {:>6} ms",
                 started.elapsed().as_millis()
             );
         }
@@ -125,8 +161,13 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     match args.as_slice() {
-        [cmd] if cmd == "models" => return models_command(false),
-        [cmd, sub] if cmd == "models" && sub == "download" => return models_command(true),
+        [cmd] if cmd == "models" => return models_command(Download::Nothing),
+        [cmd, sub] if cmd == "models" && sub == "download" => {
+            return models_command(Download::Defaults)
+        }
+        [cmd, sub, id] if cmd == "models" && sub == "download" => {
+            return models_command(Download::Model(id))
+        }
         [cmd, sub] if cmd == "models" && sub == "bench" => return bench_command(None),
         [cmd, sub, photo] if cmd == "models" && sub == "bench" => {
             return bench_command(Some(photo))

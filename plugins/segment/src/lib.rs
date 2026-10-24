@@ -12,6 +12,9 @@
 //! { "kind": "plugin", "plugin": "org.aperio.segment", "version": "0.1.0",
 //!   "params": { "class": "sky", "invert": false } }
 //! ```
+//!
+//! Subjects take `"detail": "best"` (BiRefNet, the default) or `"fast"`
+//! (ISNet, an optional download).
 
 pub mod models;
 mod refine;
@@ -31,8 +34,6 @@ use serde_json::Value;
 
 pub const ID: &str = "org.aperio.segment";
 
-const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
-const STD: [f32; 3] = [0.229, 0.224, 0.225];
 /// Guided filter strength: lower keeps finer edges from the photo.
 const REFINE_EPS: f32 = 1e-3;
 
@@ -83,12 +84,12 @@ impl Segment {
             .map(|p| [to_srgb(p[0]), to_srgb(p[1]), to_srgb(p[2])])
             .collect();
         let small = refine::resize_area(&srgb, source.width, source.height, s, s);
-        // NCHW, normalized with ImageNet statistics like both models' training.
+        // NCHW, normalized like the model's training data.
         let plane = (s * s) as usize;
         let mut input = vec![0.0f32; 3 * plane];
         for (i, px) in small.iter().enumerate() {
             for c in 0..3 {
-                input[c * plane + i] = (px[c] - MEAN[c]) / STD[c];
+                input[c * plane + i] = (px[c] - model.mean[c]) / model.std[c];
             }
         }
         let tensor = Tensor::from_array(([1usize, 3, s as usize, s as usize], input))
@@ -223,6 +224,12 @@ fn class() -> ParamSpec {
     ParamSpec::choice("class", "Select", &["sky", "subject"], "sky")
 }
 
+/// Which subject model: BiRefNet ("best") or ISNet ("fast", an optional
+/// download). Sky masks ignore it.
+fn detail() -> ParamSpec {
+    ParamSpec::choice("detail", "Subject detail", &["best", "fast"], "best")
+}
+
 fn invert() -> ParamSpec {
     ParamSpec::boolean("invert", "Invert", false)
 }
@@ -238,7 +245,7 @@ impl Plugin for Segment {
             operation: None,
             mask: Some(Provides {
                 label: "AI select".into(),
-                params: vec![class(), invert()],
+                params: vec![class(), detail(), invert()],
             }),
             models: models::ALL
                 .iter()
@@ -252,8 +259,20 @@ impl Plugin for Segment {
     }
 
     fn mask(&self, params: &Value, source: Image<'_>) -> Result<Vec<f32>> {
-        let model = match class().read_choice(params)?.as_str() {
-            "subject" => models::SUBJECT,
+        let model = match (
+            class().read_choice(params)?.as_str(),
+            detail().read_choice(params)?.as_str(),
+        ) {
+            // A sidecar asking for the fast model still renders where only
+            // the best one is downloaded; not the other way round, so a
+            // photo never silently gets the rougher mask.
+            ("subject", "fast")
+                if models::FAST_SUBJECT.is_installed(&self.dir)
+                    || !models::SUBJECT.is_installed(&self.dir) =>
+            {
+                models::FAST_SUBJECT
+            }
+            ("subject", _) => models::SUBJECT,
             _ => models::SKY,
         };
         let invert = invert().read_bool(params)?;
@@ -291,6 +310,7 @@ fn to_srgb(v: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
 
     #[test]
     fn remembers_gpu_providers_that_fail() {
@@ -341,6 +361,29 @@ mod tests {
         assert!(plugin.mask(&json!({"class": "cat"}), img).is_err());
     }
 
+    #[test]
+    fn fast_subjects_fall_back_to_the_best_model() {
+        let dir = std::env::temp_dir().join(format!("aperio-fallback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plugin = Segment::new(&dir);
+        let px = flat(4, 4);
+        let img = Image {
+            width: 4,
+            height: 4,
+            pixels: &px,
+        };
+        let fast = json!({"class": "subject", "detail": "fast"});
+        let err = plugin.mask(&fast, img).unwrap_err().to_string();
+        assert!(err.contains(models::FAST_SUBJECT.name), "{err}");
+        // A stand-in "best" model of the right size: the fast mask now tries
+        // it (and fails to load it) instead of asking for the fast one.
+        let best = File::create(models::SUBJECT.path(&dir)).unwrap();
+        best.set_len(models::SUBJECT.size_bytes).unwrap();
+        let err = plugin.mask(&fast, img).unwrap_err().to_string();
+        assert!(err.contains("birefnet_lite"), "{err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Runs the real models when they're downloaded (set APERIO_MODELS_DIR
     /// or run `aperio models download`); skipped otherwise.
     #[test]
@@ -348,6 +391,7 @@ mod tests {
         let plugin = Segment::new(models::default_dir());
         if !models::ALL
             .iter()
+            .filter(|m| !m.optional)
             .all(|m| m.is_installed(plugin.models_dir()))
         {
             eprintln!("skipping: models not downloaded");
@@ -378,5 +422,12 @@ mod tests {
             .mask(&json!({"class": "sky", "invert": true}), img)
             .unwrap();
         assert!((inverted[0] - (1.0 - sky[0])).abs() < 1e-6);
+        if models::FAST_SUBJECT.is_installed(plugin.models_dir()) {
+            let fast = plugin
+                .mask(&json!({"class": "subject", "detail": "fast"}), img)
+                .unwrap();
+            assert_eq!(fast.len(), (w * h) as usize);
+            assert!(fast.iter().all(|m| (0.0..=1.0).contains(m)));
+        }
     }
 }
