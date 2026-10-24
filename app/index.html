@@ -8,20 +8,59 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <header class="toolbar">
-      <button id="open">Open…</button>
-      <span id="title" class="muted">No photo open</span>
-      <button id="export" disabled>Export…</button>
+    <header class="topbar">
+      <div class="logo"><span class="mark"></span>Aperio</div>
+      <button id="open" type="button">Open…</button>
+      <div id="title" class="file muted">No photo open</div>
+      <div class="history">
+        <button id="undo" type="button" class="icon" title="Undo (Ctrl+Z)" disabled>↶</button>
+        <button id="redo" type="button" class="icon" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+      </div>
+      <button id="export" type="button" class="primary" disabled>Export…</button>
     </header>
     <main class="shell">
+      <nav class="rail" id="rail">
+        <button type="button" data-tool="select" title="Adjust (V)">
+          <svg viewBox="0 0 24 24"><path d="M6 3l12 9-5.5 1L15 20l-2.5 1-2.6-7L6 17z" /></svg>
+        </button>
+        <button type="button" data-tool="crop" title="Crop (C)">
+          <svg viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14" /></svg>
+        </button>
+        <span class="sep"></span>
+        <button type="button" data-tool="brush" title="New brush mask (B)">
+          <svg viewBox="0 0 24 24"><path d="M14 4l6 6-8 8-4 1 1-4zM5 20c-1 0-2-1-1-2" /></svg>
+        </button>
+        <button type="button" data-tool="linear" title="New gradient mask (G)">
+          <svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" /><path d="M12 5v14" class="thin" /></svg>
+        </button>
+        <button type="button" data-tool="radial" title="New radial mask (R)">
+          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6" /><ellipse cx="12" cy="12" rx="4" ry="3" class="thin" /></svg>
+        </button>
+        <span class="sep"></span>
+        <button type="button" data-tool="ai" title="AI tools arrive with the segmentation plugin" disabled>
+          <svg viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>
+        </button>
+      </nav>
       <section class="canvas">
-        <img id="preview" alt="" hidden />
-        <p id="status" class="muted">Open a RAW, JPEG, PNG, or TIFF to start editing.</p>
+        <div id="stage" class="stage">
+          <div id="frame" class="frame" hidden>
+            <img id="preview" alt="" />
+            <svg id="overlay"></svg>
+          </div>
+          <p id="status" class="muted">Open a RAW, JPEG, PNG, or TIFF to start editing.</p>
+        </div>
+        <footer class="statusbar">
+          <button id="before" type="button" disabled>Before / after</button>
+          <span class="muted">Fit</span>
+          <span class="spacer"></span>
+          <span id="timing" class="muted mono"></span>
+          <span id="saved" class="muted"></span>
+        </footer>
       </section>
       <aside class="panel">
-        <h2>Adjustments</h2>
-        <form id="sliders"></form>
-        <button id="reset" type="button" disabled>Reset</button>
+        <canvas id="histogram" width="512" height="160"></canvas>
+        <div id="tabs" class="tabs"></div>
+        <div id="tab-body" class="tab-body"></div>
       </aside>
     </main>
   </body>

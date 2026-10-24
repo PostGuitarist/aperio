@@ -40,9 +40,9 @@ docs/
 ## How an edit flows
 
 1. Open: decode the original into linear RGB with sRGB primaries (32-bit float) and load or create its sidecar. RAW files are demosaiced by rawler with the as-shot white balance and camera matrix applied.
-2. Edit: the UI sends a change to the backend, which updates the `EditDocument` and saves the sidecar.
+2. Edit: the UI owns a copy of the `EditDocument`. Panels and on-canvas tools change it and send the whole document with each preview request; the backend keeps the latest one and saves the sidecar when an edit is committed (a slider released, a drag finished). Undo and redo are snapshots of the document in the UI.
 3. Render: document operations compile into a flat list of per-pixel steps that a WGSL compute shader runs; a CPU copy of the same math is the fallback and the test reference. The renderer walks the layers bottom to top: one GPU dispatch per layer runs its steps on the result below and blends through the layer's mask (rasterized on the CPU at the image's size) at its opacity.
-4. Preview: renders at screen resolution and is shared with the webview as an image. Full resolution is used only for export and for 100% zoom tiles.
+4. Preview: renders at screen resolution and is shared with the webview as an image. The preview can skip the crop (while the crop tool is open), tint the selected layer's mask red, or hide every adjustment for a before view; on-canvas handles are drawn in the UI over the image, mapped through the crop. Full resolution is used only for export and for 100% zoom tiles.
 5. Export: full-resolution render, converted to the output color space (sRGB by default) and encoded.
 
 ## Plugins (milestone 4)
