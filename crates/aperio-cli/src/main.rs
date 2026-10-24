@@ -124,7 +124,9 @@ fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
     };
     println!("{}x{} preview", img.width, img.height);
     let mut masks = vec![("sky", "best"), ("subject", "best")];
-    if models::FAST_SUBJECT.is_installed(segment.models_dir()) {
+    if models::ALL.contains(&models::FAST_SUBJECT)
+        && models::FAST_SUBJECT.is_installed(segment.models_dir())
+    {
         masks.push(("subject", "fast"));
     }
     for (class, detail) in masks {

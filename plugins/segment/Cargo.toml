@@ -8,6 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# ISNet as a "fast" subject model (an optional download). Off until its
+# license questions are settled; see LICENSES.md.
+fast-subject = []
+
 [dependencies]
 aperio-plugin.workspace = true
 dirs = "6"

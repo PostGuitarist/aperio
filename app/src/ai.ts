@@ -288,7 +288,7 @@ export function buildAi(root: HTMLElement) {
     b.addEventListener("click", () => addAiLayer(what));
     row.append(b);
   }
-  select.append(row, h("p", { className: "hint muted" }, "Each adds a layer masked to that part of the photo; adjust it in the Adjust and Curves tabs. The first run on a photo takes a few seconds (subjects longer, unless the fast subject model is downloaded)."));
+  select.append(row, h("p", { className: "hint muted" }, "Each adds a layer masked to that part of the photo; adjust it in the Adjust and Curves tabs. Aperio starts on these in the background when a photo opens, so they're usually ready by the time you add them."));
 
   const sky = group(root, "Sky replacement");
   const replace = h("button", { type: "button", textContent: "Replace sky…" });

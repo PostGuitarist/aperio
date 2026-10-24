@@ -69,6 +69,7 @@ jobs:
           npm run build
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p aperio-plugin-segment --features fast-subject --all-targets -- -D warnings
       - run: cargo test --workspace
         env:
           # Linux runners have no GPU; Mesa's software Vulkan driver stands in.

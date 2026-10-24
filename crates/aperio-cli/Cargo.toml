@@ -12,6 +12,10 @@ publish = false
 name = "aperio"
 path = "src/main.rs"
 
+[features]
+# ISNet as an optional "fast" subject model; off by default (see LICENSES.md).
+fast-subject = ["aperio-plugin-segment/fast-subject"]
+
 [dependencies]
 aperio-core.workspace = true
 aperio-plugin.workspace = true

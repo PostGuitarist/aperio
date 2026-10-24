@@ -103,7 +103,15 @@ pub const FAST_SUBJECT: Model = Model {
     ),
 };
 
+/// The models this build offers. ISNet is only offered with the
+/// `fast-subject` feature, which is off by default.
+#[cfg(feature = "fast-subject")]
 pub const ALL: [Model; 3] = [SKY, SUBJECT, FAST_SUBJECT];
+#[cfg(not(feature = "fast-subject"))]
+pub const ALL: [Model; 2] = [SKY, SUBJECT];
+
+/// Whether this build offers [`FAST_SUBJECT`].
+pub const FAST_SUBJECT_ENABLED: bool = cfg!(feature = "fast-subject");
 
 /// Look a model up by id.
 pub fn find(id: &str) -> Option<Model> {

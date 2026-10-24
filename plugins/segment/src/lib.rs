@@ -74,13 +74,13 @@ impl Segment {
         devices
     }
 
-    /// Run the installed models on `source` ahead of time (sky first, as it's
-    /// quick), so AI masks for this photo are ready when they're asked for.
+    /// Run the installed models on `source` ahead of time (quickest first),
+    /// so AI masks for this photo are ready when they're asked for.
     /// Stops early if `keep_going` turns false, for example when another
     /// photo is opened.
     pub fn prepare(&self, source: Image<'_>, keep_going: impl Fn() -> bool) {
-        for model in [models::SKY, models::SUBJECT] {
-            if !keep_going() || !model.is_installed(&self.dir) {
+        for model in [models::SKY, models::FAST_SUBJECT, models::SUBJECT] {
+            if !keep_going() || !models::ALL.contains(&model) || !model.is_installed(&self.dir) {
                 continue;
             }
             let _ = self.infer(model, source);
@@ -284,7 +284,7 @@ fn class() -> ParamSpec {
 }
 
 /// Which subject model: BiRefNet ("best") or ISNet ("fast", an optional
-/// download). Sky masks ignore it.
+/// download behind the `fast-subject` feature). Sky masks ignore it.
 fn detail() -> ParamSpec {
     ParamSpec::choice("detail", "Subject detail", &["best", "fast"], "best")
 }
@@ -304,7 +304,11 @@ impl Plugin for Segment {
             operation: None,
             mask: Some(Provides {
                 label: "AI select".into(),
-                params: vec![class(), detail(), invert()],
+                params: if models::FAST_SUBJECT_ENABLED {
+                    vec![class(), detail(), invert()]
+                } else {
+                    vec![class(), invert()]
+                },
             }),
             models: models::ALL
                 .iter()
@@ -326,8 +330,9 @@ impl Plugin for Segment {
             // the best one is downloaded; not the other way round, so a
             // photo never silently gets the rougher mask.
             ("subject", "fast")
-                if models::FAST_SUBJECT.is_installed(&self.dir)
-                    || !models::SUBJECT.is_installed(&self.dir) =>
+                if models::FAST_SUBJECT_ENABLED
+                    && (models::FAST_SUBJECT.is_installed(&self.dir)
+                        || !models::SUBJECT.is_installed(&self.dir)) =>
             {
                 models::FAST_SUBJECT
             }
@@ -369,7 +374,6 @@ fn to_srgb(v: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
 
     #[test]
     fn remembers_gpu_providers_that_fail() {
@@ -421,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "fast-subject")]
     fn fast_subjects_fall_back_to_the_best_model() {
         let dir = std::env::temp_dir().join(format!("aperio-fallback-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -436,7 +441,7 @@ mod tests {
         assert!(err.contains(models::FAST_SUBJECT.name), "{err}");
         // A stand-in "best" model of the right size: the fast mask now tries
         // it (and fails to load it) instead of asking for the fast one.
-        let best = File::create(models::SUBJECT.path(&dir)).unwrap();
+        let best = std::fs::File::create(models::SUBJECT.path(&dir)).unwrap();
         best.set_len(models::SUBJECT.size_bytes).unwrap();
         let err = plugin.mask(&fast, img).unwrap_err().to_string();
         assert!(err.contains("birefnet_lite"), "{err}");
@@ -485,7 +490,9 @@ mod tests {
         assert_eq!(plugin.outputs.lock().unwrap().len(), 1);
         plugin.prepare(img, || true);
         assert_eq!(plugin.outputs.lock().unwrap().len(), 2);
-        if models::FAST_SUBJECT.is_installed(plugin.models_dir()) {
+        if models::ALL.contains(&models::FAST_SUBJECT)
+            && models::FAST_SUBJECT.is_installed(plugin.models_dir())
+        {
             let fast = plugin
                 .mask(&json!({"class": "subject", "detail": "fast"}), img)
                 .unwrap();
