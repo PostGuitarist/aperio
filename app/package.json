@@ -1,0 +1,20 @@
+{
+  "name": "aperio-app",
+  "private": true,
+  "version": "0.0.1",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}
