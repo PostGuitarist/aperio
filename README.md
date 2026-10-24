@@ -34,7 +34,10 @@ To render a photo with its sidecar edits from the command line:
 
 ```sh
 cargo run --release -p aperio-cli -- render photo.CR2 photo.jpg
+cargo run --release -p aperio-cli -- plugins   # list bundled plugins
 ```
+
+To write a plugin, see [docs/plugins.md](docs/plugins.md).
 
 ## License
 

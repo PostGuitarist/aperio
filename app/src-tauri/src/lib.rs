@@ -1,9 +1,10 @@
 mod view;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
+use aperio_plugin::{Host, PluginInfo};
 use aperio_render::{decode, export, jpeg_bytes, ExportFormat, LinearImage, Renderer};
 use serde::Serialize;
 use tauri::ipc::Response;
@@ -161,7 +162,21 @@ async fn export_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<()
 /// takes a moment, so it isn't done at launch).
 fn with_renderer<T>(state: &AppState, f: impl FnOnce(&Renderer) -> T) -> T {
     let mut renderer = state.renderer.lock().unwrap();
-    f(renderer.get_or_insert_with(Renderer::new))
+    f(renderer.get_or_insert_with(|| Renderer::new().with_plugins(Arc::new(plugins()))))
+}
+
+/// The plugins built into the app.
+fn plugins() -> Host {
+    let mut host = Host::new();
+    host.register(aperio_plugin_vignette::Vignette)
+        .expect("bundled plugins register");
+    host
+}
+
+/// Installed plugins and what they provide, for the UI.
+#[tauri::command]
+fn list_plugins() -> Vec<PluginInfo> {
+    plugins().plugins().cloned().collect()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -172,6 +187,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             initial_path,
+            list_plugins,
             open_image,
             render_preview,
             export_image

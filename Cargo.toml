@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/aperio-core", "crates/aperio-render", "crates/aperio-cli", "app/src-tauri"]
+members = [
+    "crates/aperio-core",
+    "crates/aperio-plugin",
+    "crates/aperio-render",
+    "crates/aperio-cli",
+    "plugins/vignette",
+    "app/src-tauri",
+]
 
 [workspace.package]
 version = "0.0.1"
@@ -11,6 +18,8 @@ rust-version = "1.90"
 
 [workspace.dependencies]
 aperio-core = { path = "crates/aperio-core" }
+aperio-plugin = { path = "crates/aperio-plugin" }
+aperio-plugin-vignette = { path = "plugins/vignette" }
 aperio-render = { path = "crates/aperio-render" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

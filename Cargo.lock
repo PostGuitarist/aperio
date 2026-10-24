@@ -88,6 +88,8 @@ name = "aperio-app"
 version = "0.0.1"
 dependencies = [
  "aperio-core",
+ "aperio-plugin",
+ "aperio-plugin-vignette",
  "aperio-render",
  "serde",
  "serde_json",
@@ -101,6 +103,8 @@ name = "aperio-cli"
 version = "0.0.1"
 dependencies = [
  "aperio-core",
+ "aperio-plugin",
+ "aperio-plugin-vignette",
  "aperio-render",
 ]
 
@@ -114,10 +118,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aperio-plugin"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aperio-plugin-vignette"
+version = "1.0.0"
+dependencies = [
+ "aperio-plugin",
+ "serde_json",
+]
+
+[[package]]
 name = "aperio-render"
 version = "0.0.1"
 dependencies = [
  "aperio-core",
+ "aperio-plugin",
+ "aperio-plugin-vignette",
  "bytemuck",
  "image",
  "log",

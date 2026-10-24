@@ -14,4 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 aperio-core.workspace = true
+aperio-plugin.workspace = true
+aperio-plugin-vignette.workspace = true
 aperio-render.workspace = true

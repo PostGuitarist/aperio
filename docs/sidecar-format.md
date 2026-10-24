@@ -74,7 +74,7 @@ Each operation has an `op` tag. Built-in operations:
 | `color` | `saturation`, `vibrance`, each -1 to 1 |
 | `curve` | `channel` (`rgb`, `red`, `green`, `blue`, `luma`), `points` as `[x, y]` pairs in 0–1. Points are joined with a monotone cubic and act on sRGB-encoded values; `luma` scales all three channels together so hue is kept. |
 | `crop` | `x`, `y`, `width`, `height` normalized to the oriented source, and `angle_deg` rotating the rectangle around its center. Applied after every other operation; only the last crop counts. |
-| `plugin` | `plugin` id, `version`, free-form `params` |
+| `plugin` | `plugin` id, `version`, free-form `params`. Runs in order with the layer's other operations on the layer's input; the result is blended through the layer's mask. See [plugins.md](plugins.md). |
 
 ## Masks
 
@@ -93,4 +93,4 @@ Plugin masks store only their inputs. The generated mask is cached elsewhere and
 
 - Adding an optional field does not change the version.
 - Renaming, removing, or changing the meaning of a field bumps `version`, and the reader gains an upgrade step from the old version.
-- An operation or mask from a plugin that isn't installed is kept as-is and shown as unavailable, never dropped.
+- An operation or mask from a plugin that isn't installed (or whose installed version is incompatible) is kept as-is and reported as skipped, never dropped. A plugin mask that can't be generated leaves its whole layer out.

@@ -133,11 +133,13 @@ impl AdjustOp {
     }
 }
 
-/// An operation the renderer does not handle yet and left out.
+/// A step the renderer left out, and why.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Skipped {
     pub layer: usize,
-    pub op: &'static str,
+    /// The operation name, or the plugin id for plugin steps.
+    pub op: String,
+    pub reason: String,
 }
 
 /// A document compiled for rendering.
@@ -164,6 +166,18 @@ pub struct LayerProgram {
     pub op_count: usize,
     pub opacity: f32,
     pub mask: Option<Mask>,
+    /// Plugin operations in this layer, in order. Each runs after the first
+    /// `at` of the layer's per-pixel steps.
+    pub plugin_steps: Vec<PluginStep>,
+}
+
+/// A plugin operation and where it falls among its layer's per-pixel steps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginStep {
+    pub at: usize,
+    pub plugin: String,
+    pub version: String,
+    pub params: serde_json::Value,
 }
 
 impl Program {
@@ -195,8 +209,9 @@ pub fn blend(below: [f32; 4], above: [f32; 4], weight: f32) -> [f32; 4] {
 ///
 /// Every enabled layer's global adjustments and curves become per-pixel
 /// steps, and the base layer's crop becomes the final geometry step. Plugin
-/// operations, and crops on upper layers, are reported in `skipped` so
-/// callers can warn instead of silently dropping them.
+/// operations are recorded per layer for the renderer to hand to plugins.
+/// Crops on upper layers are reported in `skipped` so callers can warn
+/// instead of silently dropping them.
 pub fn compile(doc: &EditDocument) -> Program {
     let mut p = Program::default();
     for (index, layer) in doc.layers.iter().enumerate() {
@@ -204,6 +219,7 @@ pub fn compile(doc: &EditDocument) -> Program {
             continue;
         }
         let op_start = p.ops.len();
+        let mut plugin_steps = Vec::new();
         for op in &layer.operations {
             match *op {
                 Operation::Exposure { ev } => {
@@ -243,9 +259,20 @@ pub fn compile(doc: &EditDocument) -> Program {
                         angle_deg,
                     })
                 }
-                Operation::Crop { .. } | Operation::Plugin { .. } => p.skipped.push(Skipped {
+                Operation::Crop { .. } => p.skipped.push(Skipped {
                     layer: index,
-                    op: op_name(op),
+                    op: "crop".into(),
+                    reason: "crop only applies on the base layer".into(),
+                }),
+                Operation::Plugin {
+                    ref plugin,
+                    ref version,
+                    ref params,
+                } => plugin_steps.push(PluginStep {
+                    at: p.ops.len() - op_start,
+                    plugin: plugin.clone(),
+                    version: version.clone(),
+                    params: params.clone(),
                 }),
             }
         }
@@ -255,6 +282,7 @@ pub fn compile(doc: &EditDocument) -> Program {
             op_count: p.ops.len() - op_start,
             opacity: layer.opacity.clamp(0.0, 1.0),
             mask: layer.mask.clone(),
+            plugin_steps,
         });
     }
     p
@@ -268,18 +296,6 @@ fn white_balance(kelvin: f32, tint: f32) -> AdjustOp {
     let neutral = blackbody_rgb(NEUTRAL_KELVIN);
     let green = 1.0 - 0.3 * tint.clamp(-1.0, 1.0);
     AdjustOp::gain(neutral[0] / target[0], green, neutral[2] / target[2])
-}
-
-fn op_name(op: &Operation) -> &'static str {
-    match op {
-        Operation::Exposure { .. } => "exposure",
-        Operation::Contrast { .. } => "contrast",
-        Operation::WhiteBalance { .. } => "white_balance",
-        Operation::Color { .. } => "color",
-        Operation::Curve { .. } => "curve",
-        Operation::Crop { .. } => "crop",
-        Operation::Plugin { .. } => "plugin",
-    }
 }
 
 #[cfg(test)]
@@ -383,12 +399,16 @@ mod tests {
     }
 
     #[test]
-    fn reports_what_it_cannot_render_yet() {
-        let mut d = doc(vec![Operation::Plugin {
-            plugin: "x".into(),
-            version: "1".into(),
-            params: serde_json::Value::Null,
-        }]);
+    fn records_plugin_steps_and_reports_upper_crops() {
+        let mut d = doc(vec![
+            Operation::Exposure { ev: 1.0 },
+            Operation::Plugin {
+                plugin: "x".into(),
+                version: "1".into(),
+                params: serde_json::Value::Null,
+            },
+            Operation::Contrast { amount: 0.1 },
+        ]);
         let mut upper = Layer::new("Upper");
         upper.operations.push(Operation::Crop {
             x: 0.0,
@@ -399,19 +419,24 @@ mod tests {
         });
         d.layers.push(upper);
         let p = compile(&d);
-        assert!(p.ops.is_empty() && p.crop.is_none());
+        assert_eq!(p.ops.len(), 2);
+        assert!(p.crop.is_none());
+        assert_eq!(
+            p.layers[0].plugin_steps,
+            vec![PluginStep {
+                at: 1,
+                plugin: "x".into(),
+                version: "1".into(),
+                params: serde_json::Value::Null,
+            }]
+        );
         assert_eq!(
             p.skipped,
-            vec![
-                Skipped {
-                    layer: 0,
-                    op: "plugin"
-                },
-                Skipped {
-                    layer: 1,
-                    op: "crop"
-                }
-            ]
+            vec![Skipped {
+                layer: 1,
+                op: "crop".into(),
+                reason: "crop only applies on the base layer".into(),
+            }]
         );
     }
 

@@ -27,6 +27,8 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | pollster | render | Apache-2.0 OR MIT |
 | log | render | MIT OR Apache-2.0 |
 
+Workspace crates are GPL-3.0-or-later, except the example plugin `aperio-plugin-vignette`, which is MIT OR Apache-2.0 so it can be copied freely as a template for third-party plugins.
+
 Transitive Rust dependencies (several hundred crates, mostly Tauri's platform layers) are all under licenses from the allow-list. Run `cargo deny list -l license` for the full current list.
 
 ## JavaScript packages (direct dependencies)
