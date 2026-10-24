@@ -1,7 +1,7 @@
 //! Per-pixel adjustments, compiled from document operations into a flat list
 //! that the GPU shader and the CPU path both run.
 
-use aperio_core::{EditDocument, Operation};
+use aperio_core::{EditDocument, Mask, Operation};
 
 use crate::color::{blackbody_rgb, linear_to_srgb, luminance, srgb_to_linear};
 use crate::curve::{self, LUT_SIZE};
@@ -143,46 +143,68 @@ pub struct Skipped {
 /// A document compiled for rendering.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Program {
-    /// Per-pixel steps, in order.
+    /// Per-pixel steps of every layer, back to back.
     pub ops: Vec<AdjustOp>,
+    /// Enabled layers, bottom to top.
+    pub layers: Vec<LayerProgram>,
     /// Curve lookup tables, `LUT_SIZE` entries each, indexed by curve steps.
     pub luts: Vec<f32>,
-    /// Final crop and straighten, applied after the per-pixel steps.
+    /// Final crop and straighten, applied after every layer.
     pub crop: Option<CropRect>,
     /// Operations this version cannot render yet.
     pub skipped: Vec<Skipped>,
 }
 
+/// One layer: a slice of `Program::ops`, blended over the layers below
+/// through its mask at its opacity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayerProgram {
+    pub index: usize,
+    pub op_start: usize,
+    pub op_count: usize,
+    pub opacity: f32,
+    pub mask: Option<Mask>,
+}
+
 impl Program {
-    /// Run the per-pixel steps on one pixel.
-    pub fn apply(&self, px: [f32; 4]) -> [f32; 4] {
-        let rgb = self
-            .ops
+    /// Run one layer's per-pixel steps on a pixel (no blending).
+    pub fn apply_layer(&self, layer: &LayerProgram, px: [f32; 4]) -> [f32; 4] {
+        let ops = &self.ops[layer.op_start..layer.op_start + layer.op_count];
+        let rgb = ops
             .iter()
             .fold([px[0], px[1], px[2]], |c, op| op.apply(c, &self.luts));
         [rgb[0], rgb[1], rgb[2], px[3]]
     }
+
+    /// Run every layer on a pixel, as if all masks were fully on. Handy for
+    /// tests; real rendering goes through `Renderer`.
+    pub fn apply(&self, px: [f32; 4]) -> [f32; 4] {
+        self.layers.iter().fold(px, |below, layer| {
+            blend(below, self.apply_layer(layer, below), layer.opacity)
+        })
+    }
+}
+
+/// Mix `above` over `below` by `weight` (mask times opacity). Matches the
+/// shader's blend.
+pub fn blend(below: [f32; 4], above: [f32; 4], weight: f32) -> [f32; 4] {
+    std::array::from_fn(|i| below[i] + (above[i] - below[i]) * weight)
 }
 
 /// Compile a document for rendering.
 ///
-/// The base layer's global adjustments, curves, and crop are rendered. Upper
-/// layers, masks, and plugin operations are reported in `skipped` so callers
-/// can warn instead of silently dropping them.
+/// Every enabled layer's global adjustments and curves become per-pixel
+/// steps, and the base layer's crop becomes the final geometry step. Plugin
+/// operations, and crops on upper layers, are reported in `skipped` so
+/// callers can warn instead of silently dropping them.
 pub fn compile(doc: &EditDocument) -> Program {
     let mut p = Program::default();
     for (index, layer) in doc.layers.iter().enumerate() {
         if !layer.enabled {
             continue;
         }
+        let op_start = p.ops.len();
         for op in &layer.operations {
-            if index > 0 || layer.mask.is_some() {
-                p.skipped.push(Skipped {
-                    layer: index,
-                    op: op_name(op),
-                });
-                continue;
-            }
             match *op {
                 Operation::Exposure { ev } => {
                     let g = 2f32.powf(ev);
@@ -201,9 +223,9 @@ pub fn compile(doc: &EditDocument) -> Program {
                     channel,
                     ref points,
                 } => {
-                    let index = p.luts.len() / LUT_SIZE;
+                    let lut = p.luts.len() / LUT_SIZE;
                     p.luts.extend(curve::bake(points));
-                    p.ops.push(AdjustOp::curve(index, channel));
+                    p.ops.push(AdjustOp::curve(lut, channel));
                 }
                 // Crop is geometry, not a pixel step; the last one wins.
                 Operation::Crop {
@@ -212,7 +234,7 @@ pub fn compile(doc: &EditDocument) -> Program {
                     width,
                     height,
                     angle_deg,
-                } => {
+                } if index == 0 => {
                     p.crop = Some(CropRect {
                         x,
                         y,
@@ -221,12 +243,19 @@ pub fn compile(doc: &EditDocument) -> Program {
                         angle_deg,
                     })
                 }
-                Operation::Plugin { .. } => p.skipped.push(Skipped {
+                Operation::Crop { .. } | Operation::Plugin { .. } => p.skipped.push(Skipped {
                     layer: index,
                     op: op_name(op),
                 }),
             }
         }
+        p.layers.push(LayerProgram {
+            index,
+            op_start,
+            op_count: p.ops.len() - op_start,
+            opacity: layer.opacity.clamp(0.0, 1.0),
+            mask: layer.mask.clone(),
+        });
     }
     p
 }
@@ -361,10 +390,16 @@ mod tests {
             params: serde_json::Value::Null,
         }]);
         let mut upper = Layer::new("Upper");
-        upper.operations.push(Operation::Exposure { ev: 1.0 });
+        upper.operations.push(Operation::Crop {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+            angle_deg: 0.0,
+        });
         d.layers.push(upper);
         let p = compile(&d);
-        assert!(p.ops.is_empty());
+        assert!(p.ops.is_empty() && p.crop.is_none());
         assert_eq!(
             p.skipped,
             vec![
@@ -374,9 +409,23 @@ mod tests {
                 },
                 Skipped {
                     layer: 1,
-                    op: "exposure"
+                    op: "crop"
                 }
             ]
         );
+    }
+
+    #[test]
+    fn upper_layers_blend_at_their_opacity() {
+        let mut d = doc(vec![Operation::Exposure { ev: 1.0 }]);
+        let mut upper = Layer::new("Upper");
+        upper.opacity = 0.5;
+        upper.operations.push(Operation::Exposure { ev: 1.0 });
+        d.layers.push(upper);
+        let p = compile(&d);
+        assert_eq!(p.layers.len(), 2);
+        // 0.1 -> 0.2 (base), then halfway to 0.4 -> 0.3.
+        let out = p.apply([0.1, 0.1, 0.1, 1.0]);
+        assert!((out[0] - 0.3).abs() < 1e-6, "{out:?}");
     }
 }

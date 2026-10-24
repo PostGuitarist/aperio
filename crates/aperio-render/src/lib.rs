@@ -14,8 +14,9 @@ pub mod decode;
 pub mod export;
 pub mod geometry;
 mod gpu;
+pub mod masks;
 
-pub use adjust::{compile, AdjustOp, Program, Skipped};
+pub use adjust::{compile, AdjustOp, LayerProgram, Program, Skipped};
 pub use decode::decode;
 pub use export::{export, jpeg_bytes, ExportFormat};
 pub use geometry::CropRect;

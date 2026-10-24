@@ -12,7 +12,13 @@ struct AdjustOp {
 
 struct Params {
     pixel_count: u32,
+    op_start: u32,
     op_count: u32,
+    has_mask: u32,
+    opacity: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 const KIND_GAIN: u32 = 1u;
@@ -26,6 +32,7 @@ const PIVOT: f32 = 0.18;
 @group(0) @binding(1) var<storage, read> ops: array<AdjustOp>;
 @group(0) @binding(2) var<storage, read_write> pixels: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read> luts: array<f32>;
+@group(0) @binding(4) var<storage, read> mask: array<f32>;
 
 fn luminance(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -111,10 +118,18 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if i >= params.pixel_count {
         return;
     }
-    var px = pixels[i];
-    var rgb = px.rgb;
-    for (var k = 0u; k < params.op_count; k++) {
+    // One dispatch per layer: run its steps, then blend over what's below.
+    var weight = params.opacity;
+    if params.has_mask != 0u {
+        weight *= mask[i];
+    }
+    if weight <= 0.0 {
+        return;
+    }
+    let below = pixels[i];
+    var rgb = below.rgb;
+    for (var k = params.op_start; k < params.op_start + params.op_count; k++) {
         rgb = apply(ops[k], rgb);
     }
-    pixels[i] = vec4<f32>(rgb, px.a);
+    pixels[i] = mix(below, vec4<f32>(rgb, below.a), weight);
 }

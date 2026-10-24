@@ -57,7 +57,7 @@ Keeping the original extension means `IMG_0001.CR3` and `IMG_0001.JPG` from the 
 | `version` | Schema version. Readers reject versions newer than they support and upgrade older ones. |
 | `source.file_name` | Original file name only, so the pair survives a folder move. |
 | `source.size_bytes`, `source.sha256` | Used to warn when the original has been replaced. `sha256` is optional. |
-| `layers` | Applied bottom to top. The first layer works on the decoded source image. |
+| `layers` | Applied bottom to top. Each layer runs its operations on the result of the layers below, then blends that back in by mask × opacity. The first layer works on the decoded source image. |
 | `layers[].enabled`, `opacity` | Default to `true` and `1.0` when missing. |
 | `layers[].mask` | Optional. Without a mask the layer applies to the whole image. |
 | `layers[].operations` | Applied in order. |
@@ -82,9 +82,9 @@ Each mask has a `kind` tag. Coordinates are normalized (0–1) to the uncropped 
 
 | `kind` | Parameters |
 |---|---|
-| `brush` | `strokes`: each has `points`, `size`, `feather`, `flow`, `erase` |
-| `linear` | `start`, `end` |
-| `radial` | `center`, `radius` (x, y), `angle_deg`, `feather`, `invert` |
+| `brush` | `strokes`, replayed in order. Each has `points` (a polyline), `size` (brush diameter as a fraction of the image's longer edge), `feather` (0 = hard edge, 1 = soft all the way to the center), `flow` (0–1 strength), and `erase` (remove instead of add). |
+| `linear` | `start` (fully applied) to `end` (not applied), with a smooth falloff between. |
+| `radial` | `center`, `radius` (x, y), `angle_deg`, `feather` (fraction of the radius that fades out), `invert` |
 | `plugin` | `plugin` id, `version`, free-form `params` (e.g. AI segmentation) |
 
 Plugin masks store only their inputs. The generated mask is cached elsewhere and rebuilt when missing, so sidecars stay small and readable.

@@ -1,6 +1,7 @@
 use aperio_core::EditDocument;
 
-use crate::adjust::{compile, Program, Skipped};
+use crate::adjust::{blend, compile, LayerProgram, Program, Skipped};
+use crate::masks::rasterize;
 use crate::{Error, LinearImage, Result};
 
 /// Pixels processed per GPU pass. 4M pixels is 64 MiB of RGBA f32, well under
@@ -24,14 +25,19 @@ struct Gpu {
     pipeline: wgpu::ComputePipeline,
 }
 
+/// Per-layer uniforms. Padded to 32 bytes to satisfy uniform layout rules.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Params {
     pixel_count: u32,
+    op_start: u32,
     op_count: u32,
+    has_mask: u32,
+    opacity: f32,
+    _pad: [f32; 3],
 }
 
-// SAFETY: two u32s, no padding.
+// SAFETY: 4-byte scalars only, no implicit padding.
 unsafe impl bytemuck::Zeroable for Params {}
 unsafe impl bytemuck::Pod for Params {}
 
@@ -63,18 +69,45 @@ impl Renderer {
         self.gpu.is_some()
     }
 
-    /// Render `doc` onto `img`: per-pixel adjustments first, then the crop,
-    /// which can change the image size. Returns the operations that this
-    /// version cannot render yet.
+    /// Render `doc` onto `img`: each layer's adjustments blended over the
+    /// layers below through its mask, then the crop, which can change the
+    /// image size. Returns the operations that this version cannot render yet.
     pub fn render(&self, doc: &EditDocument, img: &mut LinearImage) -> Vec<Skipped> {
-        let program = compile(doc);
-        if !program.ops.is_empty() {
+        let mut program = compile(doc);
+        // Rasterize masks at this image's size. Plugin masks (AI) can't be
+        // generated yet, so their layers are left out and reported.
+        let mut layers = Vec::new();
+        for layer in std::mem::take(&mut program.layers) {
+            let mask = match &layer.mask {
+                None => None,
+                Some(m) => match rasterize(m, img.width, img.height) {
+                    Some(weights) => Some(weights),
+                    None => {
+                        program.skipped.push(Skipped {
+                            layer: layer.index,
+                            op: "plugin_mask",
+                        });
+                        continue;
+                    }
+                },
+            };
+            if layer.op_count > 0 && layer.opacity > 0.0 {
+                layers.push((layer, mask));
+            }
+        }
+        if !layers.is_empty() {
             match &self.gpu {
-                Some(gpu) => gpu.run(&program, &mut img.pixels),
-                None => img
-                    .pixels
-                    .iter_mut()
-                    .for_each(|px| *px = program.apply(*px)),
+                Some(gpu) => gpu.run(&program, &layers, &mut img.pixels),
+                None => {
+                    for (layer, mask) in &layers {
+                        for (i, px) in img.pixels.iter_mut().enumerate() {
+                            let w = layer.opacity * mask.as_ref().map_or(1.0, |m| m[i]);
+                            if w > 0.0 {
+                                *px = blend(*px, program.apply_layer(layer, *px), w);
+                            }
+                        }
+                    }
+                }
             }
         }
         if let Some(rect) = program.crop {
@@ -125,31 +158,43 @@ impl Gpu {
         })
     }
 
-    fn run(&self, program: &Program, pixels: &mut [[f32; 4]]) {
-        let ops = &program.ops;
+    fn run(
+        &self,
+        program: &Program,
+        layers: &[(LayerProgram, Option<Vec<f32>>)],
+        pixels: &mut [[f32; 4]],
+    ) {
         use wgpu::util::DeviceExt;
 
-        let ops_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ops"),
-                contents: bytemuck::cast_slice(ops),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-        // Bindings can't be empty, so programs without curves get one dummy table.
-        let luts: &[f32] = if program.luts.is_empty() {
-            &[0.0]
-        } else {
-            &program.luts
+        let storage_init = |label, contents: &[u8]| {
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(label),
+                    contents,
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
         };
-        let luts_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("luts"),
-                contents: bytemuck::cast_slice(luts),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
-        let chunk_bytes = (CHUNK_PIXELS.min(pixels.len()) * 16) as u64;
+        // Bindings can't be empty, so give empty lists one dummy entry.
+        let ops_buf = storage_init(
+            "ops",
+            if program.ops.is_empty() {
+                &[0; 32]
+            } else {
+                bytemuck::cast_slice(&program.ops)
+            },
+        );
+        let luts_buf = storage_init(
+            "luts",
+            bytemuck::cast_slice(if program.luts.is_empty() {
+                &[0.0f32][..]
+            } else {
+                &program.luts
+            }),
+        );
+        let no_mask = storage_init("no mask", bytemuck::cast_slice(&[0.0f32]));
+
+        let chunk_len = CHUNK_PIXELS.min(pixels.len());
+        let chunk_bytes = (chunk_len * 16) as u64;
         let storage = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pixels"),
             size: chunk_bytes,
@@ -164,49 +209,63 @@ impl Gpu {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // One mask buffer per masked layer, refilled for every chunk.
+        let mask_bufs: Vec<Option<wgpu::Buffer>> = layers
+            .iter()
+            .map(|(_, mask)| {
+                mask.as_ref().map(|_| {
+                    self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("mask"),
+                        size: (chunk_len * 4) as u64,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    })
+                })
+            })
+            .collect();
 
-        for chunk in pixels.chunks_mut(CHUNK_PIXELS) {
+        for (index, chunk) in pixels.chunks_mut(CHUNK_PIXELS).enumerate() {
+            let offset = index * CHUNK_PIXELS;
             let count = chunk.len() as u32;
             let bytes = (chunk.len() * 16) as u64;
-            let params = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("params"),
-                    contents: bytemuck::bytes_of(&Params {
-                        pixel_count: count,
-                        op_count: ops.len() as u32,
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: params.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: ops_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: storage.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: luts_buf.as_entire_binding(),
-                    },
-                ],
-            });
-
             self.queue
                 .write_buffer(&storage, 0, bytemuck::cast_slice(chunk));
+
             let mut encoder = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            {
+            for ((layer, mask), mask_buf) in layers.iter().zip(&mask_bufs) {
+                if let (Some(mask), Some(buf)) = (mask, mask_buf) {
+                    let slice = &mask[offset..offset + chunk.len()];
+                    self.queue.write_buffer(buf, 0, bytemuck::cast_slice(slice));
+                }
+                let params = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("params"),
+                        contents: bytemuck::bytes_of(&Params {
+                            pixel_count: count,
+                            op_start: layer.op_start as u32,
+                            op_count: layer.op_count as u32,
+                            has_mask: mask.is_some() as u32,
+                            opacity: layer.opacity,
+                            _pad: [0.0; 3],
+                        }),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
+                let entries = [
+                    (0, params.as_entire_binding()),
+                    (1, ops_buf.as_entire_binding()),
+                    (2, storage.as_entire_binding()),
+                    (3, luts_buf.as_entire_binding()),
+                    (4, mask_buf.as_ref().unwrap_or(&no_mask).as_entire_binding()),
+                ]
+                .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &self.pipeline.get_bind_group_layout(0),
+                    entries: &entries,
+                });
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
@@ -237,7 +296,8 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aperio_core::{ops::CurveChannel, Operation, SourceRef};
+    use aperio_core::mask::BrushStroke;
+    use aperio_core::{ops::CurveChannel, Layer, Mask, Operation, SourceRef};
 
     fn gradient(n: u32) -> LinearImage {
         let pixels = (0..n * n)
@@ -313,6 +373,85 @@ mod tests {
         d.layers[0].operations.clear();
         Renderer::new().render(&d, &mut img);
         assert_eq!(img, before);
+    }
+
+    #[test]
+    fn layers_and_masks_match_cpu_on_gpu() {
+        let gpu = match Renderer::gpu() {
+            Ok(gpu) => gpu,
+            Err(e) if std::env::var_os("APERIO_REQUIRE_GPU").is_none() => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+            Err(e) => panic!("{e}"),
+        };
+        let mut d = doc();
+        let mut sky = Layer::new("Sky");
+        sky.opacity = 0.8;
+        sky.mask = Some(Mask::Linear {
+            start: [0.0, 0.0],
+            end: [0.0, 0.6],
+        });
+        sky.operations = vec![
+            Operation::Exposure { ev: -0.8 },
+            Operation::Curve {
+                channel: CurveChannel::Blue,
+                points: vec![[0.0, 0.0], [0.5, 0.6], [1.0, 1.0]],
+            },
+        ];
+        let mut face = Layer::new("Face");
+        face.mask = Some(Mask::Radial {
+            center: [0.5, 0.6],
+            radius: [0.2, 0.3],
+            angle_deg: 20.0,
+            feather: 0.5,
+            invert: false,
+        });
+        face.operations = vec![Operation::Exposure { ev: 0.5 }];
+        let mut dodge = Layer::new("Dodge");
+        dodge.mask = Some(Mask::Brush {
+            strokes: vec![BrushStroke {
+                points: vec![[0.2, 0.2], [0.8, 0.7]],
+                size: 0.1,
+                feather: 0.5,
+                flow: 0.7,
+                erase: false,
+            }],
+        });
+        dodge.operations = vec![Operation::Contrast { amount: 0.4 }];
+        d.layers.extend([sky, face, dodge]);
+
+        let mut a = gradient(64);
+        let mut b = a.clone();
+        assert!(gpu.render(&d, &mut a).is_empty());
+        Renderer::cpu().render(&d, &mut b);
+        for (x, y) in a.pixels.iter().zip(&b.pixels) {
+            for c in 0..4 {
+                assert!((x[c] - y[c]).abs() < 1e-4, "{x:?} vs {y:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn plugin_masked_layers_are_skipped() {
+        let mut d = doc();
+        let mut ai = Layer::new("AI sky");
+        ai.mask = Some(Mask::Plugin {
+            plugin: "org.aperio.segment".into(),
+            version: "0.1.0".into(),
+            params: serde_json::Value::Null,
+        });
+        ai.operations = vec![Operation::Exposure { ev: -1.0 }];
+        d.layers.push(ai);
+        let mut img = gradient(4);
+        let skipped = Renderer::cpu().render(&d, &mut img);
+        assert_eq!(
+            skipped,
+            vec![Skipped {
+                layer: 1,
+                op: "plugin_mask"
+            }]
+        );
     }
 
     #[test]
