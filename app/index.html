@@ -8,13 +8,21 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
+    <header class="toolbar">
+      <button id="open">Open…</button>
+      <span id="title" class="muted">No photo open</span>
+      <button id="export" disabled>Export…</button>
+    </header>
     <main class="shell">
-      <aside class="panel">Library</aside>
       <section class="canvas">
-        <h1>Aperio</h1>
-        <p id="status">Open a photo to start editing.</p>
+        <img id="preview" alt="" hidden />
+        <p id="status" class="muted">Open a RAW, JPEG, PNG, or TIFF to start editing.</p>
       </section>
-      <aside class="panel">Adjustments</aside>
+      <aside class="panel">
+        <h2>Adjustments</h2>
+        <form id="sliders"></form>
+        <button id="reset" type="button" disabled>Reset</button>
+      </aside>
     </main>
   </body>
 </html>

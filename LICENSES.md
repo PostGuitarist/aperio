@@ -19,6 +19,7 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | thiserror | core, render | MIT OR Apache-2.0 |
 | tauri | app | MIT OR Apache-2.0 |
 | tauri-build | app (build) | MIT OR Apache-2.0 |
+| tauri-plugin-dialog | app (open/save dialogs) | MIT OR Apache-2.0 |
 | rawler | render (RAW decoding) | LGPL-2.1-only. Compatible: LGPL-2.1 §3 allows using the code under GPL-2.0-or-later. Declared as the deprecated id `LGPL-2.1`, clarified in deny.toml. |
 | image | render (JPEG/PNG/TIFF) | MIT OR Apache-2.0 |
 | wgpu | render (GPU) | MIT OR Apache-2.0 |
@@ -34,6 +35,7 @@ Transitive Rust dependencies (several hundred crates, mostly Tauri's platform la
 |---|---|---|
 | @tauri-apps/api | frontend ↔ backend calls | MIT OR Apache-2.0 |
 | @tauri-apps/cli | build tooling only | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-dialog | open/save dialogs | MIT OR Apache-2.0 |
 | typescript | build tooling only | Apache-2.0 |
 | vite | build tooling only | MIT |
 

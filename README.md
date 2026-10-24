@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** early development. The command-line renderer can apply basic adjustments to RAW and JPEG files; the app is a placeholder.
+> **Status:** early development. The app opens RAW, JPEG, PNG, and TIFF files, edits exposure, contrast, white balance, saturation, and vibrance with a live preview, saves edits to a sidecar, and exports JPEG, PNG, or 16-bit TIFF.
 
 ## Principles
 
@@ -24,7 +24,7 @@ You need [Rust](https://rustup.rs) 1.90 or newer, Node.js 20 or newer, and the [
 ```sh
 cd app
 npm install
-npm run tauri dev     # run the app
+npm run tauri dev     # run the app (or: npm run tauri dev -- -- photo.CR2)
 npm run tauri build   # build an installer
 ```
 

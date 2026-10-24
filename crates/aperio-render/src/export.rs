@@ -59,6 +59,16 @@ pub fn export(img: &LinearImage, path: &Path, format: ExportFormat) -> Result<()
     Ok(())
 }
 
+/// Encode as an in-memory sRGB JPEG, for previews.
+pub fn jpeg_bytes(img: &LinearImage, quality: u8) -> Result<Vec<u8>> {
+    let buf = to_rgb8(img, |px, scale| {
+        px.map(|v| (linear_to_srgb(v) * scale).round())
+    });
+    let mut out = Vec::new();
+    JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100)).encode_image(&buf)?;
+    Ok(out)
+}
+
 fn to_rgb8(
     img: &LinearImage,
     encode: impl Fn(&[f32; 4], f32) -> [f32; 4],
@@ -93,6 +103,14 @@ mod tests {
                 assert_eq!(back.to_rgb8().get_pixel(0, 0).0, [188, 0, 255]);
             }
         }
+    }
+
+    #[test]
+    fn jpeg_bytes_decode_back() {
+        let img = LinearImage::new(3, 2, vec![[0.2, 0.4, 0.6, 1.0]; 6]);
+        let bytes = jpeg_bytes(&img, 90).unwrap();
+        let back = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((back.width(), back.height()), (3, 2));
     }
 
     #[test]
