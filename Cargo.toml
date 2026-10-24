@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/aperio-core", "app/src-tauri"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/PostGuitarist/aperio"
+rust-version = "1.90"
+
+[workspace.dependencies]
+aperio-core = { path = "crates/aperio-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"

@@ -1,0 +1,197 @@
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::{Error, Mask, Operation, Result};
+
+/// Value of the `format` field in every sidecar.
+pub const FORMAT_ID: &str = "aperio.edit";
+/// Sidecar schema version written by this build.
+pub const FORMAT_VERSION: u32 = 1;
+/// Appended to the source file name, e.g. `IMG_0001.CR3.aperio.json`.
+pub const SIDECAR_EXTENSION: &str = "aperio.json";
+
+/// The full, non-destructive edit of one source image.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EditDocument {
+    pub format: String,
+    pub version: u32,
+    pub source: SourceRef,
+    /// Bottom to top. The first layer is applied to the decoded source image.
+    pub layers: Vec<Layer>,
+}
+
+/// Identifies the original file this edit belongs to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceRef {
+    /// File name only, so the sidecar still matches after a folder is moved.
+    pub file_name: String,
+    pub size_bytes: u64,
+    /// Hex SHA-256 of the source, used to detect a replaced file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Mask>,
+    #[serde(default)]
+    pub operations: Vec<Operation>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_opacity() -> f32 {
+    1.0
+}
+
+impl Layer {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            enabled: true,
+            opacity: 1.0,
+            mask: None,
+            operations: Vec::new(),
+        }
+    }
+}
+
+impl EditDocument {
+    /// A new document with a single empty base layer.
+    pub fn new(source: SourceRef) -> Self {
+        Self {
+            format: FORMAT_ID.to_owned(),
+            version: FORMAT_VERSION,
+            source,
+            layers: vec![Layer::new("Base")],
+        }
+    }
+
+    pub fn from_json(json: &str) -> Result<Self> {
+        let doc: Self = serde_json::from_str(json)?;
+        if doc.format != FORMAT_ID {
+            return Err(Error::WrongFormat(doc.format));
+        }
+        if doc.version > FORMAT_VERSION {
+            return Err(Error::UnsupportedVersion {
+                found: doc.version,
+                supported: FORMAT_VERSION,
+            });
+        }
+        Ok(doc)
+    }
+
+    pub fn to_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
+    pub fn load(path: &Path) -> Result<Self> {
+        Self::from_json(&std::fs::read_to_string(path)?)
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        std::fs::write(path, self.to_json()?)?;
+        Ok(())
+    }
+}
+
+/// Where the sidecar for `source` lives: next to it, with the full original
+/// name kept so `a.CR3` and `a.JPG` get separate sidecars.
+pub fn sidecar_path(source: &Path) -> PathBuf {
+    let mut name = source.file_name().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(SIDECAR_EXTENSION);
+    source.with_file_name(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ops::CurveChannel;
+
+    fn sample() -> EditDocument {
+        let mut doc = EditDocument::new(SourceRef {
+            file_name: "IMG_0001.CR3".into(),
+            size_bytes: 25_000_000,
+            sha256: None,
+        });
+        doc.layers[0].operations = vec![
+            Operation::Exposure { ev: 0.5 },
+            Operation::Curve {
+                channel: CurveChannel::Rgb,
+                points: vec![[0.0, 0.0], [0.5, 0.55], [1.0, 1.0]],
+            },
+        ];
+        let mut sky = Layer::new("Sky");
+        sky.mask = Some(Mask::Plugin {
+            plugin: "org.aperio.segment".into(),
+            version: "0.1.0".into(),
+            params: serde_json::json!({ "class": "sky" }),
+        });
+        sky.operations.push(Operation::Exposure { ev: -0.7 });
+        doc.layers.push(sky);
+        doc
+    }
+
+    #[test]
+    fn round_trips_through_json() {
+        let doc = sample();
+        let parsed = EditDocument::from_json(&doc.to_json().unwrap()).unwrap();
+        assert_eq!(doc, parsed);
+    }
+
+    #[test]
+    fn fills_layer_defaults() {
+        let json = r#"{
+            "format": "aperio.edit", "version": 1,
+            "source": { "file_name": "a.jpg", "size_bytes": 1 },
+            "layers": [{ "name": "Base" }]
+        }"#;
+        let doc = EditDocument::from_json(json).unwrap();
+        assert_eq!(doc.layers[0], Layer::new("Base"));
+    }
+
+    #[test]
+    fn rejects_other_formats_and_newer_versions() {
+        let mut doc = sample();
+        doc.format = "something.else".into();
+        assert!(matches!(
+            EditDocument::from_json(&doc.to_json().unwrap()),
+            Err(Error::WrongFormat(_))
+        ));
+
+        let mut doc = sample();
+        doc.version = FORMAT_VERSION + 1;
+        assert!(matches!(
+            EditDocument::from_json(&doc.to_json().unwrap()),
+            Err(Error::UnsupportedVersion { .. })
+        ));
+    }
+
+    #[test]
+    fn sidecar_keeps_original_extension() {
+        assert_eq!(
+            sidecar_path(Path::new("/photos/a.CR3")),
+            PathBuf::from("/photos/a.CR3.aperio.json")
+        );
+    }
+
+    #[test]
+    fn save_and_load() {
+        let path = std::env::temp_dir().join(format!("aperio-test-{}.json", std::process::id()));
+        let doc = sample();
+        doc.save(&path).unwrap();
+        let loaded = EditDocument::load(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(doc, loaded);
+    }
+}
