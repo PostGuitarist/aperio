@@ -15,6 +15,7 @@ allow = [
     "CDLA-Permissive-2.0",
     "GPL-3.0-or-later",
     "ISC",
+    "LGPL-2.1-only",
     "LGPL-2.1-or-later",
     "MIT",
     "MIT-0",
@@ -35,6 +36,14 @@ license-files = []
 [[licenses.clarify]]
 crate = "aperio-app"
 expression = "GPL-3.0-or-later"
+license-files = []
+
+# rawler declares the deprecated SPDX id "LGPL-2.1", which means 2.1-only.
+# LGPL-2.1 lets us use its code under GPL-2.0-or-later terms, so it is
+# compatible with GPL-3.0-or-later.
+[[licenses.clarify]]
+crate = "rawler"
+expression = "LGPL-2.1-only"
 license-files = []
 
 [bans]

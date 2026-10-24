@@ -17,8 +17,8 @@ This is the plan for v0.1. It records decisions that are expensive to change lat
 | App shell | Tauri 2 | Small native binaries on all three platforms; UI iterates quickly in HTML/TypeScript. |
 | UI | TypeScript + Vite, no framework yet | Keep it light until the mockups settle; add a framework only if the UI needs it. |
 | GPU processing | wgpu (WGSL shaders) | One API over Metal, Vulkan, and DirectX 12. |
-| RAW decoding | rawler (LGPL-2.1), LibRaw as fallback | Pure-Rust first; LibRaw covers cameras rawler misses. To be confirmed in milestone 2. |
-| Other formats | `image` crate; libheif for HEIC | |
+| RAW decoding | rawler (LGPL-2.1) | Pure Rust, no C toolchain needed. LibRaw stays an option if users hit unsupported cameras. |
+| Other formats | `image` crate (JPEG, PNG, TIFF); libheif for HEIC later | |
 | AI inference | ONNX Runtime via the `ort` crate | Runs open models on CPU, CoreML, DirectML, or CUDA. |
 
 ## Layout
@@ -26,7 +26,8 @@ This is the plan for v0.1. It records decisions that are expensive to change lat
 ```
 crates/
   aperio-core/     edit document, operations, masks, sidecar I/O (no GPU, no UI)
-  aperio-render/   (milestone 2) wgpu pipeline that turns a document into pixels
+  aperio-render/   decode, wgpu adjustment pipeline (with a CPU fallback), export
+  aperio-cli/      `aperio render <in> <out>`: headless render using the sidecar
   aperio-plugin/   (milestone 4) plugin API and host
 app/
   src/             TypeScript UI
@@ -38,9 +39,9 @@ docs/
 
 ## How an edit flows
 
-1. Open: decode the original into linear, scene-referred RGB (32-bit float) and load or create its sidecar.
+1. Open: decode the original into linear RGB with sRGB primaries (32-bit float) and load or create its sidecar. RAW files are demosaiced by rawler with the as-shot white balance and camera matrix applied.
 2. Edit: the UI sends a change to the backend, which updates the `EditDocument` and saves the sidecar.
-3. Render: the renderer walks the layers bottom to top. Each layer's operations run as GPU passes on the layer below; the result is blended through the layer's mask at its opacity.
+3. Render: document operations compile into a flat list of per-pixel steps that a WGSL compute shader runs; a CPU copy of the same math is the fallback and the test reference. The renderer will walk the layers bottom to top. Each layer's operations run as GPU passes on the layer below; the result is blended through the layer's mask at its opacity.
 4. Preview: renders at screen resolution and is shared with the webview as an image. Full resolution is used only for export and for 100% zoom tiles.
 5. Export: full-resolution render, converted to the output color space (sRGB by default) and encoded.
 

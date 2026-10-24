@@ -49,7 +49,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libayatana-appindicator3-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libayatana-appindicator3-dev mesa-vulkan-drivers
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -70,3 +70,6 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+        env:
+          # Linux runners have no GPU; Mesa's software Vulkan driver stands in.
+          APERIO_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
