@@ -30,6 +30,8 @@ crates/
   aperio-cli/      `aperio render <in> <out>`: headless render using the sidecar
   aperio-plugin/   plugin API and host (no renderer dependency)
 plugins/
+  segment/         AI sky and subject masks (ONNX Runtime)
+  sky/             sky replacement
   vignette/        example third-party plugin
 app/
   src/             TypeScript UI

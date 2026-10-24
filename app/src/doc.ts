@@ -210,7 +210,10 @@ export function maskLabel(mask: Mask | undefined) {
       return "Linear gradient";
     case "radial":
       return mask.invert ? "Radial, inverted" : "Radial gradient";
-    case "plugin":
-      return `${mask.plugin} (unavailable)`;
+    case "plugin": {
+      if (mask.plugin !== "org.aperio.segment") return mask.plugin;
+      const params = (mask.params ?? {}) as { class?: string; invert?: boolean };
+      return `AI ${params.class ?? "sky"}${params.invert ? ", inverted" : ""}`;
+    }
   }
 }

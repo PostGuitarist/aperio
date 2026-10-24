@@ -90,6 +90,7 @@ dependencies = [
  "aperio-core",
  "aperio-plugin",
  "aperio-plugin-segment",
+ "aperio-plugin-sky",
  "aperio-plugin-vignette",
  "aperio-render",
  "serde",
@@ -106,6 +107,7 @@ dependencies = [
  "aperio-core",
  "aperio-plugin",
  "aperio-plugin-segment",
+ "aperio-plugin-sky",
  "aperio-plugin-vignette",
  "aperio-render",
 ]
@@ -138,6 +140,15 @@ dependencies = [
  "serde_json",
  "sha2",
  "ureq",
+]
+
+[[package]]
+name = "aperio-plugin-sky"
+version = "0.1.0"
+dependencies = [
+ "aperio-plugin",
+ "image",
+ "serde_json",
 ]
 
 [[package]]

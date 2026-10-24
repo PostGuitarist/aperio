@@ -74,15 +74,16 @@ impl Host {
         Ok(plugin.as_ref())
     }
 
-    /// Run a plugin operation on `image`.
+    /// Run a plugin operation on `image`, given the layer's mask if it has one.
     pub fn apply(
         &self,
         id: &str,
         version: &str,
         params: &Value,
         image: ImageMut<'_>,
+        mask: Option<&[f32]>,
     ) -> Result<()> {
-        self.find(id, version)?.apply(params, image)
+        self.find(id, version)?.apply_masked(params, image, mask)
     }
 
     /// Generate (or reuse) a plugin mask for `source`.
@@ -197,7 +198,7 @@ mod tests {
             height: 1,
             pixels: &mut px,
         };
-        host.apply("org.example.test", "1.0.0", &json!({"gain": 2}), img)
+        host.apply("org.example.test", "1.0.0", &json!({"gain": 2}), img, None)
             .unwrap();
         assert_eq!(px[0], [1.0, 1.0, 1.0, 1.0]);
 
@@ -207,7 +208,7 @@ mod tests {
             pixels: &mut px,
         };
         let err = host
-            .apply("org.example.test", "2.0.0", &json!({}), img)
+            .apply("org.example.test", "2.0.0", &json!({}), img, None)
             .unwrap_err();
         assert!(err.to_string().contains("1.1.0 is installed"));
         assert!(host.find("org.example.missing", "1.0.0").is_err());

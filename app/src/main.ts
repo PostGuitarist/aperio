@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { loadPlugins } from "./ai";
 import { drawHistogram } from "./histogram";
 import { Frame, Overlay } from "./overlay";
 import { addLayer, buildPanels, showTab } from "./panels";
@@ -11,6 +12,7 @@ import {
   changed,
   editor,
   load,
+  onBusy,
   onRenderError,
   onRendered,
   onUpdate,
@@ -31,6 +33,7 @@ const redoButton = $<HTMLButtonElement>("#redo");
 const beforeButton = $<HTMLButtonElement>("#before");
 const timing = $("#timing");
 const savedNote = $("#saved");
+const notice = $<HTMLSpanElement>("#notice");
 const histogram = $<HTMLCanvasElement>("#histogram");
 const overlay = new Overlay($<SVGSVGElement>("#overlay"));
 
@@ -67,6 +70,34 @@ onRendered((r) => {
   preview.src = r.url;
   timing.textContent = `${editor.before ? "Before · " : ""}Preview ${r.ms} ms`;
   if (r.saved) savedNote.textContent = "Sidecar saved";
+  void showSkipped();
+});
+
+interface SkippedStep {
+  layer: number;
+  op: string;
+  reason: string;
+}
+
+/** Say in the status bar when part of the edit couldn't be rendered. */
+async function showSkipped() {
+  const skipped = await invoke<SkippedStep[]>("last_skipped");
+  if (skipped.length === 0) {
+    notice.textContent = "";
+    return;
+  }
+  const missingModel = skipped.some((s) => s.reason.includes("isn't downloaded"));
+  notice.textContent = missingModel
+    ? "AI models aren't downloaded yet; get them in the AI tab"
+    : `Not rendered: ${skipped[0].reason}${skipped.length > 1 ? ` (+${skipped.length - 1} more)` : ""}`;
+  notice.title = skipped.map((s) => `Layer ${s.layer}: ${s.reason}`).join("\n");
+}
+
+// AI masks can take a while the first time; say so instead of looking stuck.
+let busyTimer: number | undefined;
+onBusy((busy) => {
+  clearTimeout(busyTimer);
+  if (busy) busyTimer = window.setTimeout(() => (timing.textContent = "Rendering…"), 600);
 });
 
 onRenderError((e) => {
@@ -81,14 +112,14 @@ onUpdate(() => {
   redoButton.disabled = !canRedo();
   beforeButton.classList.toggle("active", editor.before);
   for (const b of document.querySelectorAll<HTMLButtonElement>("#rail button")) {
-    if (b.dataset.tool === "ai") continue;
     b.disabled = !ready;
     const tool = b.dataset.tool;
     const kind = editor.selected > 0 ? editor.doc.layers[editor.selected]?.mask?.kind : undefined;
     const active =
       (tool === "crop" && editor.tab === "crop") ||
-      (tool === "select" && editor.tab !== "crop" && !kind) ||
-      (editor.tab !== "crop" && tool === kind);
+      (tool === "ai" && editor.tab === "ai") ||
+      (tool === "select" && editor.tab !== "crop" && editor.tab !== "ai" && !kind) ||
+      (editor.tab !== "crop" && editor.tab !== "ai" && tool === kind);
     b.classList.toggle("active", active);
   }
   overlay.draw();
@@ -134,7 +165,8 @@ async function exportPhoto() {
   exportButton.disabled = true;
   exportButton.textContent = "Exporting…";
   try {
-    await invoke("export_image", { path });
+    const skipped = await invoke<SkippedStep[]>("export_image", { path });
+    if (skipped.length > 0) alert(`Exported, but some steps were left out:\n${skipped.map((s) => `• ${s.reason}`).join("\n")}`);
   } catch (e) {
     alert(`Export failed: ${e}`);
   } finally {
@@ -151,6 +183,7 @@ function useTool(tool: string | undefined) {
     editor.selected = 0;
     showTab("adjust");
   } else if (tool === "crop") showTab("crop");
+  else if (tool === "ai") showTab("ai");
   else if (tool === "brush" || tool === "linear" || tool === "radial") addLayer(tool);
 }
 
@@ -169,7 +202,7 @@ undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 beforeButton.addEventListener("click", toggleBefore);
 
-const KEYS: Record<string, string> = { v: "select", c: "crop", b: "brush", g: "linear", r: "radial" };
+const KEYS: Record<string, string> = { v: "select", c: "crop", b: "brush", g: "linear", r: "radial", a: "ai" };
 
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox";
@@ -193,6 +226,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 refresh();
+void loadPlugins().then(refresh);
 void invoke<string | null>("initial_path").then((path) => {
   if (path) void openPath(path);
 });

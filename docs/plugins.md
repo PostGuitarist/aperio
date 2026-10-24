@@ -16,6 +16,8 @@ To bundle a plugin, add the crate to the workspace and register it in `plugins()
 pub trait Plugin: Send + Sync {
     fn info(&self) -> PluginInfo;
     fn apply(&self, params: &Value, image: ImageMut<'_>) -> Result<()>;   // optional
+    fn apply_masked(&self, params: &Value, image: ImageMut<'_>,
+                    mask: Option<&[f32]>) -> Result<()>;                // optional
     fn mask(&self, params: &Value, source: Image<'_>) -> Result<Vec<f32>>; // optional
 }
 ```
@@ -27,6 +29,7 @@ pub trait Plugin: Send + Sync {
   - `operation` / `mask`: what the plugin provides, each with a UI label and a list of `ParamSpec`s (numbers, booleans, choices, file paths). The app builds controls from these, so a plugin doesn't need any UI code.
   - `models`: every model file the plugin uses, with its license.
 - **`apply`** changes pixels in place. Images are linear-light RGBA with sRGB primaries (values can go above 1), stored row by row. The renderer gives the operation a copy of the layer's input and blends the result back through the layer's mask and opacity, so an operation can change every pixel. Inside a layer, plugin operations run in document order, between the built-in steps around them.
+- **`apply_masked`** is `apply` with the layer's mask, for operations that need to know where they will show (`None` when the layer has no mask, or a hand-drawn one). By default it calls `apply`, so most plugins only write `apply`.
 - **`mask`** returns one weight per pixel (0 = not applied, 1 = fully applied). It receives the decoded photo *before* any adjustments, so the mask doesn't move as the user edits. The host caches results by plugin, parameters, and image, so a slow mask (such as a neural network) runs once per photo and preview size, not on every slider move.
 
 Read parameters through your `ParamSpec`s (`read_number`, `read_bool`, `read_choice`, `read_path`). These fill in defaults for missing keys and clamp numbers to their range, so older sidecars keep working when you add a parameter.
@@ -68,3 +71,7 @@ aperio models download   # fetch and verify missing models (~400 MB)
 ```
 
 A layer whose model isn't downloaded is reported as skipped. It stays in the sidecar.
+
+## Sky replacement
+
+`org.aperio.sky` ([`plugins/sky`](../plugins/sky/src/lib.rs)) is an operation that paints a sky photo of the user's choice; the layer's mask (normally the AI sky mask) decides where it shows. It uses `apply_masked` to fit the new sky between the top of the frame and the horizon the mask shows, and it leaves out the bottom of the sky photo once its own ground or skyline starts. Along the skyline, where the AI mask is unsure, pixels that look like the old sky are blended in as more sky than the mask says, so haze and gaps between leaves don't show a pale fringe.

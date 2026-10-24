@@ -18,6 +18,8 @@ fn plugins() -> Host {
     let mut host = Host::new();
     host.register(aperio_plugin_segment::Segment::new(models::default_dir()))
         .expect("bundled plugins register");
+    host.register(aperio_plugin_sky::SkyReplace::new())
+        .expect("bundled plugins register");
     host.register(aperio_plugin_vignette::Vignette)
         .expect("bundled plugins register");
     host

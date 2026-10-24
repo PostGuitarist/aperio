@@ -215,6 +215,7 @@ impl Renderer {
                             height: img.height,
                             pixels: &mut out,
                         },
+                        mask.map(|m| m.as_slice()),
                     )
                     .map_err(|e| e.to_string()),
             };

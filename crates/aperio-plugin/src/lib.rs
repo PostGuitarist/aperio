@@ -118,6 +118,20 @@ pub trait Plugin: Send + Sync {
         Err(PluginError::Unsupported)
     }
 
+    /// Like [`Plugin::apply`], with the layer's mask (one weight per pixel,
+    /// or `None` for an unmasked layer) for operations that need to know
+    /// where they will show, such as fitting a new sky above the horizon.
+    /// Most plugins only implement `apply`, which this calls by default.
+    fn apply_masked(
+        &self,
+        params: &Value,
+        image: ImageMut<'_>,
+        mask: Option<&[f32]>,
+    ) -> Result<()> {
+        let _ = mask;
+        self.apply(params, image)
+    }
+
     /// Generate the plugin's mask: one weight per pixel of `source` (0 = not
     /// applied, 1 = fully applied), row-major. `source` is the decoded photo
     /// before any adjustments, so the mask doesn't shift as edits change.

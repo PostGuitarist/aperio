@@ -4,7 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { type Channel, type CropOp, type EditDocument, readCrop } from "./doc";
 
-export type Tab = "adjust" | "curves" | "crop" | "layers";
+export type Tab = "adjust" | "curves" | "crop" | "layers" | "ai";
 
 export interface Opened {
   file_name: string;
@@ -117,6 +117,11 @@ const renderedListeners: Array<(r: Rendered) => void> = [];
 export function onRendered(f: (r: Rendered) => void) {
   renderedListeners.push(f);
 }
+const busyListeners: Array<(busy: boolean) => void> = [];
+/** Told when rendering starts and when the queue is empty again. */
+export function onBusy(f: (busy: boolean) => void) {
+  busyListeners.push(f);
+}
 const errorListeners: Array<(e: unknown) => void> = [];
 export function onRenderError(f: (e: unknown) => void) {
   errorListeners.push(f);
@@ -148,6 +153,7 @@ export function requestRender(save: boolean) {
 
 async function render(save: boolean) {
   rendering = true;
+  for (const f of busyListeners) f(true);
   const started = performance.now();
   const view = currentView();
   const crop = view.crop ? readCrop(editor.doc) : undefined;
@@ -168,6 +174,8 @@ async function render(save: boolean) {
       const next = pending;
       pending = null;
       void render(next.save);
+    } else {
+      for (const f of busyListeners) f(false);
     }
   }
 }
