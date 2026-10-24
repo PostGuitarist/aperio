@@ -1,0 +1,19 @@
+[package]
+name = "aperio-render"
+description = "Decoding, GPU rendering, and export for the Aperio photo editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+aperio-core.workspace = true
+bytemuck = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+log = "0.4"
+pollster = "1"
+rawler = { version = "0.8", default-features = false }
+thiserror.workspace = true
+wgpu = "30"

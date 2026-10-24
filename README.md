@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** early development. Nothing here edits photos yet.
+> **Status:** early development. The command-line renderer can apply basic adjustments to RAW and JPEG files; the app is a placeholder.
 
 ## Principles
 
@@ -29,6 +29,12 @@ npm run tauri build   # build an installer
 ```
 
 Run the Rust tests from the repository root with `cargo test --workspace`.
+
+To render a photo with its sidecar edits from the command line:
+
+```sh
+cargo run --release -p aperio-cli -- render photo.CR2 photo.jpg
+```
 
 ## License
 
