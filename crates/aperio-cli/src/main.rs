@@ -65,7 +65,7 @@ fn models_command(download: bool) -> Result<(), Box<dyn std::error::Error>> {
 /// `aperio models bench [photo]`: time the AI masks on a preview-sized copy
 /// of `photo` (or a made-up sky over ground) and say where each model ran
 /// (CPU or GPU). The first run of each includes loading the model; the
-/// second is what editing feels like.
+/// second shows the network's output being reused.
 fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     use aperio_plugin::{Image, Plugin};
     let img = match photo {
@@ -98,7 +98,7 @@ fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
     println!("{}x{} preview", img.width, img.height);
     for class in ["sky", "subject"] {
         let params = serde_json::json!({ "class": class });
-        for run in ["first run", "again"] {
+        for run in ["first run", "cached"] {
             let started = std::time::Instant::now();
             segment.mask(&params, source)?;
             println!(
