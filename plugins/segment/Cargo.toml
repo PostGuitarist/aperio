@@ -1,0 +1,17 @@
+[package]
+name = "aperio-plugin-segment"
+description = "AI sky and subject masks for Aperio, using open ONNX models"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+aperio-plugin.workspace = true
+dirs = "6"
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
+serde_json.workspace = true
+sha2 = "0.10"
+ureq = "3"

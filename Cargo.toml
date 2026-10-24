@@ -5,6 +5,7 @@ members = [
     "crates/aperio-plugin",
     "crates/aperio-render",
     "crates/aperio-cli",
+    "plugins/segment",
     "plugins/vignette",
     "app/src-tauri",
 ]
@@ -19,6 +20,7 @@ rust-version = "1.90"
 [workspace.dependencies]
 aperio-core = { path = "crates/aperio-core" }
 aperio-plugin = { path = "crates/aperio-plugin" }
+aperio-plugin-segment = { path = "plugins/segment" }
 aperio-plugin-vignette = { path = "plugins/vignette" }
 aperio-render = { path = "crates/aperio-render" }
 serde = { version = "1", features = ["derive"] }

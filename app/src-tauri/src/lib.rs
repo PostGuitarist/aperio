@@ -168,6 +168,10 @@ fn with_renderer<T>(state: &AppState, f: impl FnOnce(&Renderer) -> T) -> T {
 /// The plugins built into the app.
 fn plugins() -> Host {
     let mut host = Host::new();
+    host.register(aperio_plugin_segment::Segment::new(
+        aperio_plugin_segment::models::default_dir(),
+    ))
+    .expect("bundled plugins register");
     host.register(aperio_plugin_vignette::Vignette)
         .expect("bundled plugins register");
     host

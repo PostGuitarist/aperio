@@ -55,3 +55,16 @@ If no such plugin is installed, the step is left out and reported, and it stays 
 ## Licenses
 
 Plugins bundled with Aperio must use a license compatible with GPL-3.0-or-later. Every model they use, and its training data, must be listed in [LICENSES.md](../LICENSES.md), following the rules there.
+
+## The bundled AI plugin
+
+`org.aperio.segment` ([`plugins/segment`](../plugins/segment/src/lib.rs)) provides the AI sky and subject masks. It runs open ONNX models locally with ONNX Runtime. The network sees a small copy of the photo (320 px for sky, 1024 px for subjects). Its output is scaled back up and refined with a guided filter, so edges follow branches and rooflines in the full-size photo.
+
+Models are kept in the platform's data folder (for example `~/.local/share/aperio/models`, or `$APERIO_MODELS_DIR`). They're downloaded only when the user asks:
+
+```sh
+aperio models            # what's installed
+aperio models download   # fetch and verify missing models (~400 MB)
+```
+
+A layer whose model isn't downloaded is reported as skipped. It stays in the sidecar.

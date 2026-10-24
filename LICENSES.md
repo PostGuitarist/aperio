@@ -26,6 +26,10 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | bytemuck | render | Zlib OR Apache-2.0 OR MIT |
 | pollster | render | Apache-2.0 OR MIT |
 | log | render | MIT OR Apache-2.0 |
+| ort | segment plugin (runs ONNX models) | MIT OR Apache-2.0. Links ONNX Runtime (MIT), downloaded prebuilt at build time and linked statically. |
+| ureq | segment plugin (model downloads) | MIT OR Apache-2.0 |
+| sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
+| dirs | segment plugin (models folder) | MIT OR Apache-2.0 |
 
 Workspace crates are GPL-3.0-or-later, except the example plugin `aperio-plugin-vignette`, which is MIT OR Apache-2.0 so it can be copied freely as a template for third-party plugins.
 
@@ -43,10 +47,12 @@ Transitive Rust dependencies (several hundred crates, mostly Tauri's platform la
 
 ## AI models
 
-None yet. The first entry will be the segmentation model chosen in the AI plugin milestone.
+Models are not bundled with the app or the repository. They're downloaded once, when the user asks (in the app, or with `aperio models download`), from the pinned revision below, and checked against a SHA-256 before use. See `plugins/segment/src/models.rs`.
 
 | Model | Purpose | Weights license | Training data | Distribution |
 |---|---|---|---|---|
+| [Sky segmentation (U²-Net)](https://github.com/xiongzhu666/Sky-Segmentation-and-Post-processing) by xiongzhu666 | AI sky mask | MIT (repository LICENSE; the ONNX mirror at [JianyuanWang/skyseg](https://huggingface.co/JianyuanWang/skyseg) restates it) | Not published. Architecture from [U²-Net](https://github.com/xuebinqin/U-2-Net) (Apache-2.0). | Optional download, 176 MB, `skyseg.onnx` at revision `3ba8c6d` |
+| [BiRefNet lite](https://github.com/ZhengPeng7/BiRefNet) by Peng Zheng et al. | AI subject mask | MIT ([model card](https://huggingface.co/ZhengPeng7/BiRefNet_lite)) | Public academic segmentation datasets listed in the BiRefNet README (e.g. DIS5K) | Optional download, 224 MB, ONNX export at [onnx-community/BiRefNet_lite-ONNX](https://huggingface.co/onnx-community/BiRefNet_lite-ONNX) revision `de15b22` |
 
 ## Fonts, icons, and other assets
 
