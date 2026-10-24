@@ -1,14 +1,14 @@
-mod sliders;
+mod view;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use aperio_core::{sidecar_path, EditDocument, SourceRef};
+use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_render::{decode, export, jpeg_bytes, ExportFormat, LinearImage, Renderer};
 use serde::Serialize;
-use sliders::Sliders;
 use tauri::ipc::Response;
 use tauri::State;
+use view::View;
 
 /// Longest edge of the on-screen preview. Full resolution is used for export.
 const PREVIEW_EDGE: u32 = 2048;
@@ -39,7 +39,11 @@ struct Opened {
     file_name: String,
     width: u32,
     height: u32,
-    sliders: Sliders,
+    /// Size of the uncropped preview, which the editor's on-canvas tools
+    /// measure against.
+    preview_width: u32,
+    preview_height: u32,
+    doc: EditDocument,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -69,13 +73,15 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
     let (full, doc) = tauri::async_runtime::spawn_blocking(move || load(&path))
         .await
         .map_err(err)??;
+    let preview = full.downscale(PREVIEW_EDGE);
     let opened = Opened {
         file_name: doc.source.file_name.clone(),
         width: full.width,
         height: full.height,
-        sliders: Sliders::from_doc(&doc),
+        preview_width: preview.width,
+        preview_height: preview.height,
+        doc: doc.clone(),
     };
-    let preview = full.downscale(PREVIEW_EDGE);
     *state.session.lock().unwrap() = Some(Session {
         source,
         full,
@@ -104,27 +110,32 @@ fn load(path: &Path) -> CmdResult<(LinearImage, EditDocument)> {
     Ok((img, doc))
 }
 
-/// Apply slider values and return the rendered preview as JPEG bytes.
-/// With `save`, the sidecar is written too (on slider release, not every move).
+/// Take the editor's current document and return the preview as JPEG bytes.
+/// With `save`, the sidecar is written too (when an edit is committed, not on
+/// every slider movement).
 #[tauri::command]
 async fn render_preview(
-    sliders: Sliders,
+    doc: EditDocument,
+    view: View,
     save: bool,
     state: State<'_, AppState>,
 ) -> CmdResult<Response> {
-    let (mut img, doc) = {
+    if doc.format != FORMAT_ID || doc.layers.is_empty() {
+        return Err("not an Aperio edit document".into());
+    }
+    let mut img = {
         let mut session = state.session.lock().unwrap();
         let session = session.as_mut().ok_or("no photo is open")?;
-        sliders.apply_to(&mut session.doc);
+        session.doc = doc.clone();
         if save {
             session
                 .doc
                 .save(&sidecar_path(&session.source))
                 .map_err(err)?;
         }
-        (session.preview.clone(), session.doc.clone())
+        session.preview.clone()
     };
-    with_renderer(&state, |r| r.render(&doc, &mut img));
+    with_renderer(&state, |r| view::render(r, &doc, view, &mut img));
     jpeg_bytes(&img, PREVIEW_QUALITY)
         .map(Response::new)
         .map_err(err)

@@ -1,130 +1,100 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { drawHistogram } from "./histogram";
+import { Frame, Overlay } from "./overlay";
+import { addLayer, buildPanels, showTab } from "./panels";
+import {
+  type Opened,
+  type Rendered,
+  canRedo,
+  canUndo,
+  changed,
+  editor,
+  load,
+  onRenderError,
+  onRendered,
+  onUpdate,
+  redo,
+  refresh,
+  undo,
+} from "./state";
 
-interface Sliders {
-  exposure: number;
-  contrast: number;
-  temperature: number;
-  tint: number;
-  saturation: number;
-  vibrance: number;
-}
-
-interface Opened {
-  file_name: string;
-  width: number;
-  height: number;
-  sliders: Sliders;
-}
-
-interface SliderSpec {
-  key: keyof Sliders;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  neutral: number;
-  format: (v: number) => string;
-}
-
-const signed = (v: number) => (v > 0 ? "+" : "") + v.toFixed(2);
-
-const SPECS: SliderSpec[] = [
-  { key: "exposure", label: "Exposure", min: -5, max: 5, step: 0.05, neutral: 0, format: (v) => `${signed(v)} EV` },
-  { key: "contrast", label: "Contrast", min: -1, max: 1, step: 0.01, neutral: 0, format: signed },
-  { key: "temperature", label: "Temperature", min: 2000, max: 12000, step: 50, neutral: 6500, format: (v) => `${v} K` },
-  { key: "tint", label: "Tint", min: -1, max: 1, step: 0.01, neutral: 0, format: signed },
-  { key: "saturation", label: "Saturation", min: -1, max: 1, step: 0.01, neutral: 0, format: signed },
-  { key: "vibrance", label: "Vibrance", min: -1, max: 1, step: 0.01, neutral: 0, format: signed },
-];
-
-const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
+const stage = $<HTMLDivElement>("#stage");
+const frameEl = $<HTMLDivElement>("#frame");
 const preview = $<HTMLImageElement>("#preview");
-const status = $("#status");
+const status = $<HTMLParagraphElement>("#status");
 const title = $("#title");
-const form = $<HTMLFormElement>("#sliders");
 const exportButton = $<HTMLButtonElement>("#export");
-const resetButton = $<HTMLButtonElement>("#reset");
+const undoButton = $<HTMLButtonElement>("#undo");
+const redoButton = $<HTMLButtonElement>("#redo");
+const beforeButton = $<HTMLButtonElement>("#before");
+const timing = $("#timing");
+const savedNote = $("#saved");
+const histogram = $<HTMLCanvasElement>("#histogram");
+const overlay = new Overlay($<SVGSVGElement>("#overlay"));
 
-const inputs = new Map<keyof Sliders, HTMLInputElement>();
+buildPanels($("#tabs"), $("#tab-body"));
 
-function buildSliders() {
-  for (const spec of SPECS) {
-    const row = document.createElement("label");
-    row.className = "slider";
-    const name = document.createElement("span");
-    name.textContent = spec.label;
-    const value = document.createElement("output");
-    const input = document.createElement("input");
-    Object.assign(input, { type: "range", min: spec.min, max: spec.max, step: spec.step, value: spec.neutral, disabled: true });
-    const show = () => (value.textContent = spec.format(Number(input.value)));
-    input.addEventListener("input", () => {
-      show();
-      requestRender(false);
-    });
-    // Save the sidecar when the user lets go, not on every movement.
-    input.addEventListener("change", () => requestRender(true));
-    // Double-click a slider to reset it.
-    input.addEventListener("dblclick", () => {
-      input.value = String(spec.neutral);
-      show();
-      requestRender(true);
-    });
-    show();
-    row.append(name, value, input);
-    form.append(row);
-    inputs.set(spec.key, input);
+// --- Preview layout -----------------------------------------------------------
+
+/** The crop of the image currently on screen (not the one being requested). */
+let shownCrop: Rendered["crop"];
+
+/** Fit the preview into the stage and line the overlay up with it. */
+function layout() {
+  const o = editor.opened;
+  if (!o || !preview.naturalWidth) return;
+  const pad = 32;
+  const [sw, sh] = [stage.clientWidth - pad, stage.clientHeight - pad];
+  const [iw, ih] = Frame.outSize(o.preview_width, o.preview_height, shownCrop);
+  const scale = Math.min(sw / iw, sh / ih);
+  frameEl.style.width = `${iw * scale}px`;
+  frameEl.style.height = `${ih * scale}px`;
+  overlay.setFrame(new Frame(o.preview_width, o.preview_height, shownCrop, scale));
+}
+
+new ResizeObserver(layout).observe(stage);
+
+onRendered((r) => {
+  preview.onload = () => {
+    shownCrop = r.crop;
+    frameEl.hidden = false;
+    status.hidden = true;
+    layout();
+    drawHistogram(histogram, preview);
+  };
+  preview.src = r.url;
+  timing.textContent = `${editor.before ? "Before · " : ""}Preview ${r.ms} ms`;
+  if (r.saved) savedNote.textContent = "Sidecar saved";
+});
+
+onRenderError((e) => {
+  status.textContent = String(e);
+  status.hidden = false;
+});
+
+onUpdate(() => {
+  const ready = !!editor.opened;
+  exportButton.disabled = beforeButton.disabled = !ready;
+  undoButton.disabled = !canUndo();
+  redoButton.disabled = !canRedo();
+  beforeButton.classList.toggle("active", editor.before);
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#rail button")) {
+    if (b.dataset.tool === "ai") continue;
+    b.disabled = !ready;
+    const tool = b.dataset.tool;
+    const kind = editor.selected > 0 ? editor.doc.layers[editor.selected]?.mask?.kind : undefined;
+    const active =
+      (tool === "crop" && editor.tab === "crop") ||
+      (tool === "select" && editor.tab !== "crop" && !kind) ||
+      (editor.tab !== "crop" && tool === kind);
+    b.classList.toggle("active", active);
   }
-}
+  overlay.draw();
+});
 
-function current(): Sliders {
-  const s = {} as Sliders;
-  for (const [key, input] of inputs) s[key] = Number(input.value);
-  return s;
-}
-
-function setSliders(s: Sliders) {
-  for (const [key, input] of inputs) {
-    input.value = String(s[key]);
-    input.dispatchEvent(new Event("input"));
-  }
-}
-
-// Only one render in flight; while it runs, remember just the latest request.
-let rendering = false;
-let pending: { save: boolean } | null = null;
-let previewUrl: string | null = null;
-
-function requestRender(save: boolean) {
-  if (rendering) {
-    pending = { save: save || (pending?.save ?? false) };
-    return;
-  }
-  void render(save);
-}
-
-async function render(save: boolean) {
-  rendering = true;
-  try {
-    // Raw bytes arrive as an ArrayBuffer on most platforms, but as a plain
-    // number array where the webview falls back to JSON IPC (seen on Linux).
-    const bytes = await invoke<ArrayBuffer | number[]>("render_preview", { sliders: current(), save });
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }));
-    preview.src = url;
-    preview.hidden = false;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = url;
-  } catch (e) {
-    status.textContent = String(e);
-  } finally {
-    rendering = false;
-    if (pending) {
-      const next = pending;
-      pending = null;
-      void render(next.save);
-    }
-  }
-}
+// --- Open and export -------------------------------------------------------------------
 
 async function openPhoto() {
   const path = await open({
@@ -140,15 +110,13 @@ async function openPhoto() {
 async function openPath(path: string) {
   status.textContent = "Opening…";
   status.hidden = false;
+  frameEl.hidden = true;
   try {
     const opened = await invoke<Opened>("open_image", { path });
     title.textContent = `${opened.file_name} · ${opened.width}×${opened.height}`;
-    status.hidden = true;
-    for (const input of inputs.values()) input.disabled = false;
-    exportButton.disabled = false;
-    resetButton.disabled = false;
-    setSliders(opened.sliders);
-    requestRender(false);
+    savedNote.textContent = "";
+    editor.tab = "adjust";
+    load(opened);
   } catch (e) {
     status.textContent = `Could not open: ${e}`;
   }
@@ -175,14 +143,56 @@ async function exportPhoto() {
   }
 }
 
-buildSliders();
-void invoke<string | null>("initial_path").then((path) => {
-  if (path) void openPath(path);
-});
+// --- Tools and shortcuts ----------------------------------------------------------------
+
+function useTool(tool: string | undefined) {
+  if (!editor.opened) return;
+  if (tool === "select") {
+    editor.selected = 0;
+    showTab("adjust");
+  } else if (tool === "crop") showTab("crop");
+  else if (tool === "brush" || tool === "linear" || tool === "radial") addLayer(tool);
+}
+
+function toggleBefore() {
+  if (!editor.opened) return;
+  editor.before = !editor.before;
+  changed();
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>("#rail button")) {
+  b.addEventListener("click", () => useTool(b.dataset.tool));
+}
 $("#open").addEventListener("click", openPhoto);
 exportButton.addEventListener("click", exportPhoto);
-resetButton.addEventListener("click", () => {
-  for (const spec of SPECS) inputs.get(spec.key)!.value = String(spec.neutral);
-  setSliders(current());
-  requestRender(true);
+undoButton.addEventListener("click", undo);
+redoButton.addEventListener("click", redo);
+beforeButton.addEventListener("click", toggleBefore);
+
+const KEYS: Record<string, string> = { v: "select", c: "crop", b: "brush", g: "linear", r: "radial" };
+
+document.addEventListener("keydown", (e) => {
+  const typing = e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox";
+  if (typing) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+  } else if (mod && e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    redo();
+  } else if (mod && e.key.toLowerCase() === "o") {
+    e.preventDefault();
+    void openPhoto();
+  } else if (!mod && e.key === "\\") {
+    toggleBefore();
+  } else if (!mod && !e.altKey && KEYS[e.key]) {
+    useTool(KEYS[e.key]);
+  }
+});
+
+refresh();
+void invoke<string | null>("initial_path").then((path) => {
+  if (path) void openPath(path);
 });
