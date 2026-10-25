@@ -88,7 +88,7 @@ Each mask has a `kind` tag. Coordinates are normalized (0–1) to the uncropped 
 | `radial` | `center`, `radius` (x, y), `angle_deg`, `feather` (fraction of the radius that fades out), `invert` |
 | `plugin` | `plugin` id, `version`, free-form `params` (e.g. AI segmentation) |
 
-Plugin masks store only their inputs. The generated mask is cached elsewhere and rebuilt when missing, so sidecars stay small and readable.
+Plugin masks store only their inputs. The generated mask is cached elsewhere and rebuilt when missing, so sidecars stay small and readable. The AI masks keep their network outputs in the user's cache folder (for example `~/Library/Caches/aperio/masks` on macOS, `~/.cache/aperio/masks` on Linux), up to 512 MB, so a photo opened again later doesn't wait for the network. Deleting that folder is always safe.
 
 ## Compatibility rules
 
