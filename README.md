@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** early development. The app opens RAW, JPEG, PNG, and TIFF files, edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves with a live preview, crops and straightens, adds brush, gradient, and radial mask layers with their own adjustments, saves every edit to a sidecar with undo and redo, and exports JPEG, PNG, or 16-bit TIFF. AI tools come next.
+> **Status:** v0.1, an early preview. Aperio opens RAW, JPEG, PNG, and TIFF files with a live GPU preview; edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves; crops and straightens; adds brush, gradient, and radial mask layers with their own adjustments; makes AI sky and subject masks on your own machine and replaces skies; saves every edit to a sidecar with undo and redo; and exports JPEG, PNG, or 16-bit TIFF. Installers for macOS, Windows, and Linux are on the [Releases](https://github.com/PostGuitarist/aperio/releases) page.
 
 ## Principles
 
@@ -10,12 +10,9 @@ A free, open-source photo editor with AI-assisted tools that runs entirely on yo
 - **Local-first.** Everything runs on your computer.
 - **Open.** GPL-3.0-or-later, documented formats, and AI features as swappable plugins with audited licenses ([LICENSES.md](LICENSES.md)).
 
-## v0.1 roadmap
+## What's in v0.1
 
-1. Project skeleton, CI, and architecture ([architecture.md](docs/architecture.md))
-2. Open RAW/JPEG, GPU preview, basic adjustments, export
-3. Curves, crop, layers, and brush/gradient/radial masks
-4. Plugin API, AI sky and subject segmentation, sky replacement
+See the [release notes](docs/release-notes.md). Architecture: [architecture.md](docs/architecture.md).
 
 ## Building
 
@@ -29,6 +26,8 @@ npm run tauri build   # build an installer
 ```
 
 Run the Rust tests from the repository root with `cargo test --workspace`.
+
+Pushing a `v*` tag builds the installers on macOS, Windows, and Linux and attaches them to a draft GitHub release, using [docs/release-notes.md](docs/release-notes.md) as its description. Check the draft, then publish it.
 
 To render a photo with its sidecar edits from the command line:
 

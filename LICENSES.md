@@ -33,7 +33,7 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
 | dirs | segment plugin (models folder), app (thumbnail cache) | MIT OR Apache-2.0 |
 
-On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Development builds copy `DirectML.dll` next to the executable. Whether installers ship it, or rely on the system copy, has to be settled before the first Windows release.
+On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Windows installers ship the `DirectML.dll` that comes with ONNX Runtime's prebuilt binaries, installed next to the executable, because the copy built into Windows can be older than ONNX Runtime needs. Development builds copy it next to the executable too.
 
 Workspace crates are GPL-3.0-or-later, except the example plugin `aperio-plugin-vignette`, which is MIT OR Apache-2.0 so it can be copied freely as a template for third-party plugins.
 
