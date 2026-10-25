@@ -133,7 +133,7 @@ async function openPhoto() {
   const path = await open({
     multiple: false,
     filters: [
-      { name: "Photos", extensions: ["cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "dng", "pef", "srw", "jpg", "jpeg", "png", "tif", "tiff"] },
+      { name: "Photos", extensions: ["cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "dng", "pef", "srw", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "hif"] },
       { name: "All files", extensions: ["*"] },
     ],
   });

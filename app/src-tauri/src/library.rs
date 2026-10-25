@@ -23,7 +23,7 @@ const THUMB_QUALITY: u8 = 82;
 pub struct Photo {
     pub path: PathBuf,
     pub file_name: String,
-    /// "raw", "jpeg", "png" or "tiff".
+    /// "raw", "jpeg", "png", "tiff" or "heif".
     pub kind: &'static str,
     pub size_bytes: u64,
     /// Last modified, in milliseconds since 1970.
@@ -49,6 +49,8 @@ fn kind(path: &Path) -> Option<&'static str> {
             "png" => "png",
             _ => "tiff",
         })
+    } else if aperio_render::heif::EXTENSIONS.contains(&ext.as_str()) {
+        Some("heif")
     } else {
         None
     }

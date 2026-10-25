@@ -23,5 +23,17 @@ serde_json.workspace = true
 thiserror.workspace = true
 wgpu = "30"
 
+# HEIC/HEIF photos are decoded by the operating system (see src/heif.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFDictionary", "CFNumber", "CFString", "CFURL"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageSource", "objc2-core-graphics"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com"] }
+
+[target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
+libloading = "0.8"
+
 [dev-dependencies]
 aperio-plugin-vignette.workspace = true

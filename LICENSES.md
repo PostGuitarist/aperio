@@ -25,6 +25,9 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | kamadak-exif | render (reading EXIF, writing it into exports) | BSD-2-Clause. Pulls in mutate_once (BSD-2-Clause). |
 | tiff | render (16-bit TIFF export with metadata tags) | MIT |
 | wgpu | render (GPU) | MIT OR Apache-2.0 |
+| objc2-core-foundation, objc2-core-graphics, objc2-image-io | render, macOS only (HEIC decoding with ImageIO) | Zlib OR Apache-2.0 OR MIT |
+| windows | render, Windows only (HEIC decoding with WIC) | MIT OR Apache-2.0 |
+| libloading | render, Linux only (loading the system's libheif for HEIC) | ISC |
 | bytemuck | render | Zlib OR Apache-2.0 OR MIT |
 | pollster | render | Apache-2.0 OR MIT |
 | log | render | MIT OR Apache-2.0 |
@@ -32,6 +35,8 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | ureq | segment plugin (model downloads) | MIT OR Apache-2.0 |
 | sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
 | dirs | segment plugin (models folder), app (thumbnail cache) | MIT OR Apache-2.0 |
+
+HEIC photos are decoded by the operating system, so Aperio ships no HEVC decoder and needs no HEVC patent license: ImageIO on macOS; on Windows, Microsoft's HEIF Image Extensions and HEVC Video Extensions, which the user installs from the Microsoft Store; on Linux, libheif (LGPL-3.0) and its decoder plugins (libde265 is LGPL-3.0), loaded at run time from the system if the user has installed them. None of them is linked or bundled.
 
 On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Development builds copy `DirectML.dll` next to the executable. Whether installers ship it, or rely on the system copy, has to be settled before the first Windows release.
 

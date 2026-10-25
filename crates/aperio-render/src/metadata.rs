@@ -11,6 +11,7 @@ use rawler::rawsource::RawSource;
 use serde::Deserialize;
 
 use crate::decode::is_raster;
+use crate::heif::is_heif;
 use crate::{Error, Result};
 
 /// What an export keeps of the original's metadata.
@@ -79,7 +80,7 @@ pub struct Summary {
 impl Metadata {
     /// Read `path`'s metadata. A file without any gives an empty set.
     pub fn read(path: &Path) -> Result<Self> {
-        if is_raster(path) {
+        if is_raster(path) || is_heif(path) {
             let file = std::fs::File::open(path)?;
             return Ok(
                 match exif::Reader::new().read_from_container(&mut BufReader::new(file)) {

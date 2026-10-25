@@ -8,7 +8,7 @@ import { h } from "./panels";
 interface Photo {
   path: string;
   file_name: string;
-  kind: "raw" | "jpeg" | "png" | "tiff";
+  kind: "raw" | "jpeg" | "png" | "tiff" | "heif";
   size_bytes: number;
   modified_ms: number;
   edited: boolean;
@@ -52,7 +52,7 @@ export interface LibraryActions {
 
 const STORE = "aperio.library";
 const MAX_RECENT = 8;
-const KIND_LABEL: Record<Photo["kind"], string> = { raw: "RAW", jpeg: "JPEG", png: "PNG", tiff: "TIFF" };
+const KIND_LABEL: Record<Photo["kind"], string> = { raw: "RAW", jpeg: "JPEG", png: "PNG", tiff: "TIFF", heif: "HEIC" };
 /** Thumbnails decoded at once. RAW previews are quick, but not free. */
 const PARALLEL = 3;
 

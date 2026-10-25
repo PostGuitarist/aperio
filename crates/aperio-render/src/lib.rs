@@ -15,6 +15,7 @@ pub mod decode;
 pub mod export;
 pub mod geometry;
 mod gpu;
+pub mod heif;
 pub mod masks;
 pub mod metadata;
 pub mod sharpen;
@@ -133,6 +134,8 @@ pub enum Error {
     UnsupportedFormat(String),
     #[error("could not decode RAW file: {0}")]
     Raw(String),
+    #[error("could not open HEIC photo: {0}")]
+    Heif(String),
     #[error(transparent)]
     Image(#[from] image::ImageError),
     #[error(transparent)]
