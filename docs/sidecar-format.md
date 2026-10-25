@@ -70,6 +70,7 @@ Each operation has an `op` tag. Built-in operations:
 |---|---|
 | `exposure` | `ev` in stops |
 | `contrast` | `amount`, -1 to 1 |
+| `tone` | `highlights`, `shadows`, `whites`, `blacks`, each -1 to 1 and 0 when missing. Highlights and shadows move the bright and dark midtones; whites and blacks move the ends of the range. Runs as a hue-keeping (luma) curve on sRGB-encoded values; each negative amount exactly undoes the matching positive one. |
 | `white_balance` | `temperature_k`, `tint` |
 | `color` | `saturation`, `vibrance`, each -1 to 1 |
 | `curve` | `channel` (`rgb`, `red`, `green`, `blue`, `luma`), `points` as `[x, y]` pairs in 0–1. Points are joined with a monotone cubic and act on sRGB-encoded values; `luma` scales all three channels together so hue is kept. |

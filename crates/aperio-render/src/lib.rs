@@ -15,6 +15,7 @@ pub mod export;
 pub mod geometry;
 mod gpu;
 pub mod masks;
+pub mod tone;
 
 pub use adjust::{compile, AdjustOp, LayerProgram, Program, Skipped};
 pub use decode::decode;

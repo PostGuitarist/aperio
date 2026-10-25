@@ -6,6 +6,7 @@ use aperio_core::{EditDocument, Mask, Operation};
 use crate::color::{blackbody_rgb, linear_to_srgb, luminance, srgb_to_linear};
 use crate::curve::{self, LUT_SIZE};
 use crate::geometry::CropRect;
+use crate::tone;
 use aperio_core::ops::CurveChannel;
 
 /// Temperature the white balance slider treats as "no change".
@@ -231,6 +232,19 @@ pub fn compile(doc: &EditDocument) -> Program {
                     tint,
                 } => p.ops.push(white_balance(temperature_k, tint)),
                 Operation::Contrast { amount } => p.ops.push(AdjustOp::contrast(amount)),
+                Operation::Tone {
+                    highlights,
+                    shadows,
+                    whites,
+                    blacks,
+                } => {
+                    if !tone::is_neutral(highlights, shadows, whites, blacks) {
+                        let lut = p.luts.len() / LUT_SIZE;
+                        p.luts
+                            .extend(tone::bake(highlights, shadows, whites, blacks));
+                        p.ops.push(AdjustOp::curve(lut, CurveChannel::Luma));
+                    }
+                }
                 Operation::Color {
                     saturation,
                     vibrance,
@@ -396,6 +410,47 @@ mod tests {
         .apply([0.3, 0.2, 0.1, 1.0]);
         // Luma curves brighten while keeping the color ratios.
         assert!(luma[0] > 0.3 && (luma[0] / luma[2] - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn tone_compiles_to_a_luma_curve_and_neutral_tone_to_nothing() {
+        let neutral = compile(&doc(vec![Operation::Tone {
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+        }]));
+        assert!(neutral.ops.is_empty() && neutral.luts.is_empty());
+
+        let p = compile(&doc(vec![Operation::Tone {
+            highlights: -0.5,
+            shadows: 0.8,
+            whites: 0.0,
+            blacks: 0.0,
+        }]));
+        assert_eq!(p.ops, vec![AdjustOp::curve(0, CurveChannel::Luma)]);
+        // Dark tones lift, bright tones come down, and hue is kept.
+        let dark = p.apply([0.03, 0.02, 0.01, 1.0]);
+        assert!(
+            dark[1] > 0.03 && (dark[0] / dark[2] - 3.0).abs() < 1e-3,
+            "{dark:?}"
+        );
+        let bright = p.apply([0.6, 0.6, 0.6, 1.0]);
+        assert!(bright[0] < 0.6, "{bright:?}");
+    }
+
+    #[test]
+    fn tone_fields_default_to_zero_in_sidecars() {
+        let op: Operation = serde_json::from_str(r#"{ "op": "tone", "shadows": 0.4 }"#).unwrap();
+        assert_eq!(
+            op,
+            Operation::Tone {
+                highlights: 0.0,
+                shadows: 0.4,
+                whites: 0.0,
+                blacks: 0.0,
+            }
+        );
     }
 
     #[test]

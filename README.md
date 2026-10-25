@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** early development. The app opens RAW, JPEG, PNG, and TIFF files, edits exposure, contrast, white balance, saturation, vibrance, and tone curves with a live preview, crops and straightens, adds brush, gradient, and radial mask layers with their own adjustments, saves every edit to a sidecar with undo and redo, and exports JPEG, PNG, or 16-bit TIFF. AI tools come next.
+> **Status:** early development. The app opens RAW, JPEG, PNG, and TIFF files, edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves with a live preview, crops and straightens, adds brush, gradient, and radial mask layers with their own adjustments, saves every edit to a sidecar with undo and redo, and exports JPEG, PNG, or 16-bit TIFF. AI tools come next.
 
 ## Principles
 

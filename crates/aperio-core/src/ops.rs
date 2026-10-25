@@ -14,6 +14,18 @@ pub enum Operation {
     Contrast { amount: f32 },
     /// White balance as temperature in kelvin and a green/magenta tint.
     WhiteBalance { temperature_k: f32, tint: f32 },
+    /// Tonal range adjustments, each from -1.0 to 1.0. Highlights and shadows
+    /// move the bright and dark midtones; whites and blacks move the ends.
+    Tone {
+        #[serde(default)]
+        highlights: f32,
+        #[serde(default)]
+        shadows: f32,
+        #[serde(default)]
+        whites: f32,
+        #[serde(default)]
+        blacks: f32,
+    },
     /// Saturation and vibrance, each from -1.0 to 1.0.
     Color { saturation: f32, vibrance: f32 },
     /// Tone curve as control points in 0.0..=1.0, applied to the given channel.

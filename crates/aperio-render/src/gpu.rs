@@ -459,6 +459,12 @@ mod tests {
             },
             Operation::Exposure { ev: 0.7 },
             Operation::Contrast { amount: 0.3 },
+            Operation::Tone {
+                highlights: -0.6,
+                shadows: 0.5,
+                whites: 0.3,
+                blacks: -0.2,
+            },
             Operation::Color {
                 saturation: 0.2,
                 vibrance: 0.4,
