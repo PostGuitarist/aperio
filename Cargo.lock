@@ -112,6 +112,7 @@ dependencies = [
  "aperio-plugin-sky",
  "aperio-plugin-vignette",
  "aperio-render",
+ "image",
  "serde_json",
 ]
 

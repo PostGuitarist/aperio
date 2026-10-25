@@ -75,10 +75,24 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The segment plugin on its own builds without fast-subject.
       - run: cargo clippy -p aperio-plugin-segment --all-targets -- -D warnings
+      # The end-to-end test (crates/aperio-cli/tests/end_to_end.rs) needs the
+      # sky model on Linux. It's cached, so it's downloaded only when the
+      # pinned models change.
+      - name: Cache the sky model
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/aperio/models
+          key: aperio-sky-model-${{ hashFiles('plugins/segment/src/models.rs') }}
+      - name: Download the sky model
+        if: runner.os == 'Linux'
+        run: cargo run -q -p aperio-cli -- models download skyseg
+
       - run: cargo test --workspace
         env:
           # Linux runners have no GPU; Mesa's software Vulkan driver stands in.
           APERIO_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
+          APERIO_REQUIRE_MODELS: ${{ runner.os == 'Linux' && '1' || '' }}
 
       # Windows and macOS builds run the AI models once, to check that the GPU
       # provider (DirectML, Core ML) loads or falls back to the CPU cleanly.
