@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { loadPlugins } from "./ai";
 import { buildExport } from "./export";
+import { buildLibrary } from "./library";
 import { drawHistogram } from "./histogram";
 import { Frame, Overlay } from "./overlay";
 import { addLayer, buildPanels, showTab } from "./panels";
@@ -145,6 +146,7 @@ async function openPath(path: string) {
   frameEl.hidden = true;
   try {
     const opened = await invoke<Opened>("open_image", { path });
+    openedPath = path;
     title.textContent = `${opened.file_name} · ${opened.width}×${opened.height}`;
     savedNote.textContent = "";
     editor.tab = "adjust";
@@ -164,9 +166,49 @@ const exportScreen = buildExport((done) => {
   }
 });
 
-function exportPhoto() {
-  if (editor.opened) exportScreen.show(frameEl.hidden ? undefined : preview.src);
+function exportPhoto(thumbnail?: string) {
+  if (editor.opened) exportScreen.show(thumbnail ?? (frameEl.hidden ? undefined : preview.src));
 }
+
+// --- Library and Edit screens ----------------------------------------------------------
+
+type Mode = "library" | "edit";
+let mode: Mode = "edit";
+/** The full path of the photo in the editor. */
+let openedPath: string | null = null;
+
+const library = buildLibrary($("#library"), $<HTMLInputElement>("#search"), {
+  edit: async (path) => {
+    if (path !== openedPath) await openPath(path);
+    setMode("edit");
+  },
+  quickExport: async (path, thumbnail) => {
+    if (path !== openedPath) await openPath(path);
+    setMode("edit");
+    exportPhoto(thumbnail);
+  },
+});
+
+function setMode(next: Mode) {
+  const leaving = mode;
+  mode = next;
+  document.body.dataset.mode = next;
+  $<HTMLElement>("#library").hidden = next !== "library";
+  $<HTMLElement>("#editor").hidden = next !== "edit";
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#modes button")) {
+    const on = b.dataset.mode === next;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  }
+  // Coming back from editing, pick up the new sidecar and thumbnail.
+  if (next === "library") void library.show(leaving === "edit" ? (openedPath ?? undefined) : undefined);
+  else layout();
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>("#modes button")) {
+  b.addEventListener("click", () => setMode(b.dataset.mode as Mode));
+}
+$("#open-folder").addEventListener("click", () => void library.chooseFolder());
 
 // --- Tools and shortcuts ----------------------------------------------------------------
 
@@ -190,7 +232,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("#rail button")) {
   b.addEventListener("click", () => useTool(b.dataset.tool));
 }
 $("#open").addEventListener("click", openPhoto);
-exportButton.addEventListener("click", exportPhoto);
+exportButton.addEventListener("click", () => exportPhoto());
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 beforeButton.addEventListener("click", toggleBefore);
@@ -202,6 +244,18 @@ document.addEventListener("keydown", (e) => {
   // The export dialog has its own keys (Escape closes it).
   if (typing || document.querySelector("dialog[open]")) return;
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === "1" || e.key === "2")) {
+    e.preventDefault();
+    setMode(e.key === "1" ? "library" : "edit");
+    return;
+  }
+  if (mode === "library") {
+    if (mod && e.key.toLowerCase() === "o") {
+      e.preventDefault();
+      void library.chooseFolder();
+    } else if (!mod && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement)) library.key(e);
+    return;
+  }
   if (mod && e.key.toLowerCase() === "z") {
     e.preventDefault();
     if (e.shiftKey) redo();
@@ -224,6 +278,11 @@ document.addEventListener("keydown", (e) => {
 
 refresh();
 void loadPlugins().then(refresh);
+// A photo passed on the command line opens in the editor; otherwise start
+// in the library.
 void invoke<string | null>("initial_path").then((path) => {
-  if (path) void openPath(path);
+  if (path) {
+    setMode("edit");
+    void openPath(path);
+  } else setMode("library");
 });
