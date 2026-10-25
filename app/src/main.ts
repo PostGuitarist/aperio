@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { loadPlugins } from "./ai";
+import { buildExport } from "./export";
 import { drawHistogram } from "./histogram";
 import { Frame, Overlay } from "./overlay";
 import { addLayer, buildPanels, showTab } from "./panels";
@@ -32,7 +33,7 @@ const undoButton = $<HTMLButtonElement>("#undo");
 const redoButton = $<HTMLButtonElement>("#redo");
 const beforeButton = $<HTMLButtonElement>("#before");
 const timing = $("#timing");
-const savedNote = $("#saved");
+const savedNote = $<HTMLSpanElement>("#saved");
 const notice = $<HTMLSpanElement>("#notice");
 const histogram = $<HTMLCanvasElement>("#histogram");
 const overlay = new Overlay($<SVGSVGElement>("#overlay"));
@@ -153,26 +154,18 @@ async function openPath(path: string) {
   }
 }
 
-async function exportPhoto() {
-  const path = await save({
-    filters: [
-      { name: "JPEG", extensions: ["jpg"] },
-      { name: "PNG", extensions: ["png"] },
-      { name: "TIFF (16-bit)", extensions: ["tif"] },
-    ],
-  });
-  if (!path) return;
-  exportButton.disabled = true;
-  exportButton.textContent = "Exporting…";
-  try {
-    const skipped = await invoke<SkippedStep[]>("export_image", { path });
-    if (skipped.length > 0) alert(`Exported, but some steps were left out:\n${skipped.map((s) => `• ${s.reason}`).join("\n")}`);
-  } catch (e) {
-    alert(`Export failed: ${e}`);
-  } finally {
-    exportButton.disabled = false;
-    exportButton.textContent = "Export…";
+const exportScreen = buildExport((done) => {
+  const name = done.path.split(/[\\/]/).pop();
+  savedNote.textContent = `Exported ${name} · ${done.width}×${done.height} · ${(done.ms / 1000).toFixed(1)} s`;
+  savedNote.title = done.path;
+  if (done.skipped.length > 0) {
+    notice.textContent = `Exported without: ${done.skipped[0].reason}${done.skipped.length > 1 ? ` (+${done.skipped.length - 1} more)` : ""}`;
+    notice.title = done.skipped.map((s) => `Layer ${s.layer}: ${s.reason}`).join("\n");
   }
+});
+
+function exportPhoto() {
+  if (editor.opened) exportScreen.show(frameEl.hidden ? undefined : preview.src);
 }
 
 // --- Tools and shortcuts ----------------------------------------------------------------
@@ -206,7 +199,8 @@ const KEYS: Record<string, string> = { v: "select", c: "crop", b: "brush", g: "l
 
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox";
-  if (typing) return;
+  // The export dialog has its own keys (Escape closes it).
+  if (typing || document.querySelector("dialog[open]")) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === "z") {
     e.preventDefault();
@@ -215,6 +209,9 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.key.toLowerCase() === "y") {
     e.preventDefault();
     redo();
+  } else if (mod && e.key.toLowerCase() === "e") {
+    e.preventDefault();
+    exportPhoto();
   } else if (mod && e.key.toLowerCase() === "o") {
     e.preventDefault();
     void openPhoto();

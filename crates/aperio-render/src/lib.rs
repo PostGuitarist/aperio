@@ -67,11 +67,45 @@ impl LinearImage {
         }
         Self::new(w, h, pixels)
     }
+
+    /// A copy resized so its longer edge is exactly `long_edge`, filtered in
+    /// linear light (Lanczos). Never enlarges: returns a plain copy if the
+    /// image is already that size or smaller.
+    pub fn resized(&self, long_edge: u32) -> Self {
+        let long = self.width.max(self.height);
+        if long_edge == 0 || long_edge >= long {
+            return self.clone();
+        }
+        let scale = long_edge as f64 / long as f64;
+        let w = ((self.width as f64 * scale).round() as u32).max(1);
+        let h = ((self.height as f64 * scale).round() as u32).max(1);
+        let raw = self.pixels.iter().flatten().copied().collect();
+        let buf = image::ImageBuffer::<image::Rgba<f32>, Vec<f32>>::from_raw(
+            self.width,
+            self.height,
+            raw,
+        )
+        .expect("buffer matches dimensions");
+        let out = image::imageops::resize(&buf, w, h, image::imageops::FilterType::Lanczos3);
+        let pixels = out.pixels().map(|p| p.0.map(|v| v.max(0.0))).collect();
+        Self::new(w, h, pixels)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resized_hits_the_long_edge_and_never_enlarges() {
+        let img = LinearImage::new(60, 40, vec![[0.5, 0.25, 1.0, 1.0]; 2400]);
+        let small = img.resized(45);
+        assert_eq!((small.width, small.height), (45, 30));
+        // A flat image stays flat through the filter.
+        assert!(small.pixels.iter().all(|p| (p[0] - 0.5).abs() < 1e-4));
+        assert_eq!(img.resized(100), img);
+        assert_eq!(img.resized(0), img);
+    }
 
     #[test]
     fn downscale_averages_blocks_and_fits_the_edge() {

@@ -12,6 +12,8 @@ export interface Opened {
   height: number;
   preview_width: number;
   preview_height: number;
+  /** The folder the photo is in. */
+  folder: string;
   doc: EditDocument;
 }
 
