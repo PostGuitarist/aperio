@@ -2,6 +2,42 @@
 //! input, and growing its low-resolution mask back to full size with edges
 //! that follow the photo.
 
+/// Shrink `src` (w x h) by a whole factor so its longer edge is at most
+/// `max_edge`, averaging each block of pixels and dropping leftover edge
+/// pixels. Returns `None` if it already fits. Must match
+/// `LinearImage::downscale` in aperio-render, which apps use for previews,
+/// so a full-size image reduces to exactly its preview.
+pub fn box_reduce(
+    src: &[[f32; 4]],
+    w: u32,
+    h: u32,
+    max_edge: u32,
+) -> Option<(Vec<[f32; 4]>, u32, u32)> {
+    let factor = w.max(h).div_ceil(max_edge.max(1)).max(1);
+    if factor == 1 {
+        return None;
+    }
+    let (ow, oh) = (w / factor, h / factor);
+    let inv = 1.0 / (factor * factor) as f32;
+    let mut out = Vec::with_capacity((ow * oh) as usize);
+    for y in 0..oh {
+        for x in 0..ow {
+            let mut sum = [0.0f32; 4];
+            for sy in y * factor..(y + 1) * factor {
+                let row = (sy * w) as usize;
+                for sx in x * factor..(x + 1) * factor {
+                    let px = src[row + sx as usize];
+                    for c in 0..4 {
+                        sum[c] += px[c];
+                    }
+                }
+            }
+            out.push(sum.map(|v| v * inv));
+        }
+    }
+    Some((out, ow, oh))
+}
+
 /// Average `src` (w x h, `C` channels) down to `ow` x `oh`. Each output pixel
 /// averages the source pixels it covers, which avoids aliasing when the
 /// network input is much smaller than the photo.
@@ -73,10 +109,21 @@ pub fn guided_filter(
     let n = guide.len();
     let ip: Vec<f32> = guide.iter().zip(p).map(|(i, p)| i * p).collect();
     let ii: Vec<f32> = guide.iter().map(|i| i * i).collect();
-    let mean_i = box_mean(guide, w, h, radius);
-    let mean_p = box_mean(p, w, h, radius);
-    let mean_ip = box_mean(&ip, w, h, radius);
-    let mean_ii = box_mean(&ii, w, h, radius);
+    // The box means are independent, and at full size each takes a while,
+    // so they run side by side.
+    let mean = |src: &[f32]| box_mean(src, w, h, radius);
+    let (mean_i, mean_p, mean_ip, mean_ii) = std::thread::scope(|s| {
+        let i = s.spawn(|| mean(guide));
+        let pp = s.spawn(|| mean(p));
+        let ip = s.spawn(|| mean(&ip));
+        let ii = mean(&ii);
+        (
+            i.join().unwrap(),
+            pp.join().unwrap(),
+            ip.join().unwrap(),
+            ii,
+        )
+    });
     let mut a = vec![0.0f32; n];
     let mut b = vec![0.0f32; n];
     for k in 0..n {
@@ -85,8 +132,11 @@ pub fn guided_filter(
         a[k] = cov / (var + eps);
         b[k] = mean_p[k] - a[k] * mean_i[k];
     }
-    let mean_a = box_mean(&a, w, h, radius);
-    let mean_b = box_mean(&b, w, h, radius);
+    let (mean_a, mean_b) = std::thread::scope(|s| {
+        let a = s.spawn(|| mean(&a));
+        let b = mean(&b);
+        (a.join().unwrap(), b)
+    });
     (0..n)
         .map(|k| (mean_a[k] * guide[k] + mean_b[k]).clamp(0.0, 1.0))
         .collect()

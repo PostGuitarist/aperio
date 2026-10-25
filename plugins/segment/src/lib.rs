@@ -3,8 +3,10 @@
 //! Runs open ONNX models locally with ONNX Runtime (see [`models`] for which
 //! ones and their licenses). The network sees a small copy of the photo; its
 //! mask is scaled back up and refined with a guided filter so edges follow
-//! the photo. The plugin host caches the result, so this runs once per photo
-//! and preview size.
+//! the photo. The network sees the same reduced copy whether it is given the
+//! preview or the full-size photo (see [`SOURCE_EDGE`]), so exporting reuses
+//! the run made for the preview; only the edge refinement runs again at full
+//! size. The plugin host caches finished masks.
 //!
 //! Sidecar mask:
 //!
@@ -33,6 +35,14 @@ use ort::value::Tensor;
 use serde_json::Value;
 
 pub const ID: &str = "org.aperio.segment";
+
+/// Photos larger than this (on the longer edge) are first shrunk by a whole
+/// factor, the way `LinearImage::downscale` does, before going to the
+/// network. An app whose previews are made that way at this size gets
+/// full-size exports that reuse the network run from the preview instead
+/// of running it again. The network input is at most 1024 px anyway, so
+/// this doesn't change the mask.
+pub const SOURCE_EDGE: u32 = 2048;
 
 /// Guided filter strength: lower keeps finer edges from the photo.
 const REFINE_EPS: f32 = 1e-3;
@@ -90,6 +100,15 @@ impl Segment {
     /// Run `model` on `source` and return its probability map at the
     /// network's resolution.
     fn infer(&self, model: Model, source: Image<'_>) -> Result<Arc<Vec<f32>>> {
+        let reduced = refine::box_reduce(source.pixels, source.width, source.height, SOURCE_EDGE);
+        let source = match &reduced {
+            Some((pixels, width, height)) => Image {
+                width: *width,
+                height: *height,
+                pixels,
+            },
+            None => source,
+        };
         let key = fingerprint(model.id, source);
         let cached = || {
             let outputs = self.outputs.lock().unwrap();
@@ -405,6 +424,38 @@ mod tests {
     }
 
     use serde_json::json;
+
+    #[test]
+    fn full_size_photos_reuse_the_preview_network_run() {
+        // An odd size, so the reduction drops edge pixels like the preview.
+        let (w, h) = (4100u32, 2731u32);
+        let pixels: Vec<[f32; 4]> = (0..w * h)
+            .map(|i| {
+                let t = (i % 7919) as f32 / 7919.0;
+                [t, 1.0 - t, (t * 3.0).fract(), 1.0]
+            })
+            .collect();
+        let full = aperio_render::LinearImage::new(w, h, pixels);
+        let preview = full.downscale(SOURCE_EDGE);
+        let (reduced, rw, rh) =
+            refine::box_reduce(&full.pixels, w, h, SOURCE_EDGE).expect("needs reducing");
+        assert_eq!((rw, rh), (preview.width, preview.height));
+        assert_eq!(reduced, preview.pixels);
+        let image = |w, h, pixels| Image {
+            width: w,
+            height: h,
+            pixels,
+        };
+        assert_eq!(
+            fingerprint("m", image(rw, rh, &reduced)),
+            fingerprint("m", image(preview.width, preview.height, &preview.pixels))
+        );
+        // A preview is already small enough and goes to the network as is.
+        assert!(
+            refine::box_reduce(&preview.pixels, preview.width, preview.height, SOURCE_EDGE)
+                .is_none()
+        );
+    }
 
     fn flat(w: u32, h: u32) -> Vec<[f32; 4]> {
         vec![[0.2, 0.3, 0.6, 1.0]; (w * h) as usize]

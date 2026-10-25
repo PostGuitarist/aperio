@@ -138,6 +138,7 @@ name = "aperio-plugin-segment"
 version = "0.1.0"
 dependencies = [
  "aperio-plugin",
+ "aperio-render",
  "dirs 6.0.0",
  "ort",
  "serde_json",
