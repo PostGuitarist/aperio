@@ -59,11 +59,16 @@ pub fn export(img: &LinearImage, path: &Path, format: ExportFormat) -> Result<()
     Ok(())
 }
 
+/// The image as 8-bit sRGB, alpha dropped.
+pub fn srgb8(img: &LinearImage) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    to_rgb8(img, |px, scale| {
+        px.map(|v| (linear_to_srgb(v) * scale).round())
+    })
+}
+
 /// Encode as an in-memory sRGB JPEG, for previews.
 pub fn jpeg_bytes(img: &LinearImage, quality: u8) -> Result<Vec<u8>> {
-    let buf = to_rgb8(img, |px, scale| {
-        px.map(|v| (linear_to_srgb(v) * scale).round())
-    });
+    let buf = srgb8(img);
     let mut out = Vec::new();
     JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100)).encode_image(&buf)?;
     Ok(out)

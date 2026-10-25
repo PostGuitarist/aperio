@@ -21,7 +21,7 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | tauri-build | app (build) | MIT OR Apache-2.0 |
 | tauri-plugin-dialog | app (open/save dialogs) | MIT OR Apache-2.0 |
 | rawler | render (RAW decoding) | LGPL-2.1-only. Compatible: LGPL-2.1 §3 allows using the code under GPL-2.0-or-later. Declared as the deprecated id `LGPL-2.1`, clarified in deny.toml. |
-| image | render (JPEG/PNG/TIFF), sky plugin | MIT OR Apache-2.0 |
+| image | render (JPEG/PNG/TIFF), sky plugin, app (library thumbnails) | MIT OR Apache-2.0 |
 | wgpu | render (GPU) | MIT OR Apache-2.0 |
 | bytemuck | render | Zlib OR Apache-2.0 OR MIT |
 | pollster | render | Apache-2.0 OR MIT |
@@ -29,7 +29,7 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | ort | segment plugin (runs ONNX models) | MIT OR Apache-2.0. Links ONNX Runtime (MIT), downloaded prebuilt at build time and linked statically. On Windows it also links DirectML; see below. |
 | ureq | segment plugin (model downloads) | MIT OR Apache-2.0 |
 | sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
-| dirs | segment plugin (models folder) | MIT OR Apache-2.0 |
+| dirs | segment plugin (models folder), app (thumbnail cache) | MIT OR Apache-2.0 |
 
 On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Development builds copy `DirectML.dll` next to the executable. Whether installers ship it, or rely on the system copy, has to be settled before the first Windows release.
 

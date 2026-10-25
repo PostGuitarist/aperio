@@ -14,16 +14,22 @@ const RASTER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff"];
 /// demosaics, applies the as-shot white balance and the camera color matrix,
 /// and returns linear sRGB-primaries data.
 pub fn decode(path: &Path) -> Result<LinearImage> {
+    if is_raster(path) {
+        decode_raster(path)
+    } else {
+        decode_raw(path)
+    }
+}
+
+/// Whether `path` is a JPEG, PNG or TIFF by its extension; anything else is
+/// treated as a camera RAW file.
+pub fn is_raster(path: &Path) -> bool {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
-    if RASTER_EXTENSIONS.contains(&ext.as_str()) {
-        decode_raster(path)
-    } else {
-        decode_raw(path)
-    }
+    RASTER_EXTENSIONS.contains(&ext.as_str())
 }
 
 fn decode_raster(path: &Path) -> Result<LinearImage> {

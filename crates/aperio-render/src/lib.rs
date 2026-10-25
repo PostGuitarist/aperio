@@ -8,6 +8,7 @@
 //! Gamma is applied only when encoding the output.
 
 pub mod adjust;
+pub mod browse;
 pub mod color;
 pub mod curve;
 pub mod decode;
@@ -19,7 +20,7 @@ pub mod tone;
 
 pub use adjust::{compile, AdjustOp, LayerProgram, Program, Skipped};
 pub use decode::decode;
-pub use export::{export, jpeg_bytes, ExportFormat};
+pub use export::{export, jpeg_bytes, srgb8, ExportFormat};
 pub use geometry::CropRect;
 pub use gpu::Renderer;
 

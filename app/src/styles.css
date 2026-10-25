@@ -890,3 +890,330 @@ dl.facts dd {
 .export-settings .target.warn {
   color: var(--accent);
 }
+
+/* --- Screens --- */
+
+main[hidden] {
+  display: none !important;
+}
+
+body[data-mode="library"] .edit-only,
+body:not([data-mode="library"]) .library-only {
+  display: none;
+}
+
+.modes {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.modes button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 5px 16px;
+  font-weight: 500;
+}
+
+.modes button.active {
+  background: var(--border);
+  color: var(--text);
+}
+
+.topbar .spacer {
+  flex: 1;
+}
+
+.topbar .search {
+  width: 280px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* --- Library --- */
+
+.library {
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  min-height: 0;
+}
+
+.lib-side {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  overflow: auto;
+}
+
+.lib-side h4 {
+  margin: 0;
+  padding: 0 8px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lib-side h4 + .check,
+.lib-side ul + h4 {
+  margin-top: 0;
+}
+
+.lib-side ul + h4 {
+  padding-top: 22px;
+}
+
+ul.folders {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.folders button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  text-align: left;
+}
+
+ul.folders button.active {
+  background: var(--border);
+  color: var(--text);
+}
+
+ul.folders .name {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+ul.folders .count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+ul.folders .none {
+  padding: 4px 8px;
+}
+
+.lib-side .check {
+  padding: 6px 8px;
+}
+
+.lib-side .note {
+  margin: 24px 0 0;
+  padding: 12px;
+  border: 1px dashed #3a3d46;
+  border-radius: 10px;
+  line-height: 1.5;
+}
+
+.lib-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.lib-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lib-bar[hidden] {
+  display: none;
+}
+
+.lib-bar h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lib-bar .spacer {
+  flex: 1;
+}
+
+.lib-bar select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.lib-bar input[type="range"] {
+  width: 90px;
+  accent-color: var(--accent);
+}
+
+.lib-grid {
+  --tile: 200px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.lib-grid:empty {
+  display: none;
+}
+
+.tile {
+  position: relative;
+  /* 3:2 via padding: grid rows don't size from aspect-ratio on WebKit. */
+  height: 0;
+  padding: 0 0 66.667%;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.tile img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tile img:not([src]) {
+  visibility: hidden;
+}
+
+.tile.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.tile.broken::after {
+  content: "No preview";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.tile .badge {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(18, 19, 22, 0.8);
+  font-size: 10px;
+}
+
+.tile .badge.kind {
+  left: 8px;
+  top: 8px;
+}
+
+.tile .badge.edited {
+  right: 8px;
+  bottom: 8px;
+  color: var(--accent);
+}
+
+.lib-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text);
+}
+
+.lib-empty[hidden] {
+  display: none;
+}
+
+.lib-empty button {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+}
+
+.lib-inspector {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+
+.lib-inspector[hidden] {
+  visibility: hidden;
+  display: flex;
+}
+
+.lib-inspector .thumb {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.lib-inspector h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.lib-inspector dl.facts:empty {
+  display: none;
+}
+
+.lib-inspector .spacer {
+  flex: 1;
+}
+
+.lib-inspector button {
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.lib-inspector button.primary {
+  height: 42px;
+  font-weight: 600;
+}

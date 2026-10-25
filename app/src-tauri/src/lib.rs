@@ -1,3 +1,4 @@
+mod library;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -7,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, PluginInfo};
 use aperio_plugin_segment::models;
-use aperio_render::{decode, export, jpeg_bytes, ExportFormat, LinearImage, Renderer, Skipped};
+use aperio_render::{
+    browse, decode, export, jpeg_bytes, srgb8, ExportFormat, LinearImage, Renderer, Skipped,
+};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::State;
@@ -195,7 +198,7 @@ async fn render_preview(
     if doc.format != FORMAT_ID || doc.layers.is_empty() {
         return Err("not an Aperio edit document".into());
     }
-    let mut img = {
+    let (mut img, source) = {
         let mut session = state.session.lock().unwrap();
         let session = session.as_mut().ok_or("no photo is open")?;
         session.doc = doc.clone();
@@ -205,13 +208,18 @@ async fn render_preview(
                 .save(&sidecar_path(&session.source))
                 .map_err(err)?;
         }
-        session.preview.clone()
+        (session.preview.clone(), session.source.clone())
     };
+    // A saved edit seen the normal way also becomes the library thumbnail.
+    let thumb = save && view.crop && view.mask_overlay.is_none() && !view.before;
     let (img, skipped) = with_renderer(&state, move |r| {
         let skipped = view::render(r, &doc, view, &mut img);
         (img, skipped)
     })
     .await?;
+    if thumb {
+        library::store_edited(&library::cache_dir(), &source, &srgb8(&img));
+    }
     *state.skipped.lock().unwrap() = skipped.into_iter().map(Into::into).collect();
     jpeg_bytes(&img, PREVIEW_QUALITY)
         .map(Response::new)
@@ -367,6 +375,33 @@ async fn with_renderer<T: Send + 'static>(
     .map_err(err)
 }
 
+/// The photos in a folder, for the Library screen.
+#[tauri::command]
+async fn list_folder(path: PathBuf) -> CmdResult<library::Folder> {
+    tauri::async_runtime::spawn_blocking(move || library::list(&path))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+/// A photo's thumbnail as JPEG bytes, made on first request and cached.
+#[tauri::command]
+async fn thumbnail(path: PathBuf) -> CmdResult<Response> {
+    tauri::async_runtime::spawn_blocking(move || library::thumbnail(&library::cache_dir(), &path))
+        .await
+        .map_err(err)?
+        .map(Response::new)
+}
+
+/// Camera details for the Library inspector.
+#[tauri::command]
+async fn photo_details(path: PathBuf) -> CmdResult<browse::PhotoDetails> {
+    tauri::async_runtime::spawn_blocking(move || browse::details(&path))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
 /// Installed plugins and what they provide, for the UI.
 #[tauri::command]
 fn list_plugins(state: State<'_, AppState>) -> Vec<PluginInfo> {
@@ -457,6 +492,9 @@ pub fn run() {
             app_info,
             initial_path,
             list_plugins,
+            list_folder,
+            thumbnail,
+            photo_details,
             open_image,
             render_preview,
             last_skipped,

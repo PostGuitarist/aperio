@@ -26,6 +26,8 @@ aperio-plugin-segment.workspace = true
 aperio-plugin-sky.workspace = true
 aperio-plugin-vignette.workspace = true
 aperio-render.workspace = true
+dirs = "6"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12", features = [] }
