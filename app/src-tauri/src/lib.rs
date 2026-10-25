@@ -43,7 +43,10 @@ struct Plugins {
 
 impl Default for Plugins {
     fn default() -> Self {
-        let segment = Arc::new(aperio_plugin_segment::Segment::new(models::default_dir()));
+        let segment = Arc::new(
+            aperio_plugin_segment::Segment::new(models::default_dir())
+                .with_disk_cache(aperio_plugin_segment::disk::default_dir()),
+        );
         let mut host = Host::new();
         host.register(segment.clone())
             .expect("bundled plugins register");

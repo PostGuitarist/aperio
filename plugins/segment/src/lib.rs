@@ -6,7 +6,9 @@
 //! the photo. The network sees the same reduced copy whether it is given the
 //! preview or the full-size photo (see [`SOURCE_EDGE`]), so exporting reuses
 //! the run made for the preview; only the edge refinement runs again at full
-//! size. The plugin host caches finished masks.
+//! size. The plugin host caches finished masks, and with
+//! [`Segment::with_disk_cache`] network outputs are also kept on disk, so a
+//! photo opened again in a later session gets its masks without the network.
 //!
 //! Sidecar mask:
 //!
@@ -18,6 +20,7 @@
 //! Subjects take `"detail": "best"` (BiRefNet, the default) or `"fast"`
 //! (ISNet, an optional download).
 
+pub mod disk;
 pub mod models;
 mod refine;
 
@@ -28,6 +31,7 @@ use std::sync::{Arc, Mutex};
 use aperio_plugin::{
     Image, ModelInfo, ParamSpec, Plugin, PluginError, PluginInfo, Provides, Result, API_VERSION,
 };
+use disk::DiskCache;
 use models::Model;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -56,10 +60,16 @@ pub struct Segment {
     /// inverse, the background) and a mask computed ahead of time by
     /// [`Segment::prepare`] don't run the network again.
     outputs: Mutex<VecDeque<(u64, Arc<Vec<f32>>)>>,
+    /// Network outputs kept between sessions, if enabled.
+    disk: Option<DiskCache>,
 }
 
-/// How many network outputs to keep (each is at most 4 MB).
+/// How many network outputs to keep in memory (each is at most 4 MB).
 const OUTPUT_CACHE: usize = 4;
+
+/// How much disk the stored outputs may use. A subject output is 4 MB and a
+/// sky output 400 KB, so this holds the masks of over a hundred photos.
+pub const DISK_CACHE_BYTES: u64 = 512 * 1024 * 1024;
 
 impl Segment {
     /// Use models from `dir` (see [`models::default_dir`]).
@@ -68,7 +78,15 @@ impl Segment {
             dir: dir.into(),
             sessions: Mutex::new(HashMap::new()),
             outputs: Mutex::new(VecDeque::new()),
+            disk: None,
         }
+    }
+
+    /// Also keep network outputs in `dir` (see [`disk::default_dir`]), up
+    /// to [`DISK_CACHE_BYTES`].
+    pub fn with_disk_cache(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.disk = Some(DiskCache::new(dir, DISK_CACHE_BYTES));
+        self
     }
 
     pub fn models_dir(&self) -> &std::path::Path {
@@ -109,7 +127,8 @@ impl Segment {
             },
             None => source,
         };
-        let key = fingerprint(model.id, source);
+        let key = fingerprint(model, source);
+        let plane = (model.input_size * model.input_size) as usize;
         let cached = || {
             let outputs = self.outputs.lock().unwrap();
             outputs
@@ -118,6 +137,11 @@ impl Segment {
                 .map(|(_, o)| o.clone())
         };
         if let Some(out) = cached() {
+            return Ok(out);
+        }
+        if let Some(out) = self.disk.as_ref().and_then(|d| d.load(key, plane)) {
+            let out = Arc::new(out);
+            self.remember(key, out.clone());
             return Ok(out);
         }
         let path = model.path(&self.dir);
@@ -136,7 +160,6 @@ impl Segment {
             .collect();
         let small = refine::resize_area(&srgb, source.width, source.height, s, s);
         // NCHW, normalized like the model's training data.
-        let plane = (s * s) as usize;
         let mut input = vec![0.0f32; 3 * plane];
         for (i, px) in small.iter().enumerate() {
             for c in 0..3 {
@@ -179,28 +202,44 @@ impl Segment {
                 })
                 .collect(),
         );
+        self.remember(key, out.clone());
+        if let Some(disk) = &self.disk {
+            disk.store(key, &out);
+        }
+        Ok(out)
+    }
+
+    fn remember(&self, key: u64, out: Arc<Vec<f32>>) {
         let mut outputs = self.outputs.lock().unwrap();
+        if outputs.iter().any(|(k, _)| *k == key) {
+            return;
+        }
         if outputs.len() == OUTPUT_CACHE {
             outputs.pop_front();
         }
-        outputs.push_back((key, out.clone()));
-        Ok(out)
+        outputs.push_back((key, out));
     }
 }
 
-/// Identifies a model run: the model and the image (its size plus a sample
-/// of its pixels, enough to tell photos and preview sizes apart).
-fn fingerprint(model: &str, source: Image<'_>) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (model, source.width, source.height).hash(&mut h);
-    let step = (source.pixels.len() / 4096).max(1);
-    for px in source.pixels.iter().step_by(step) {
+/// Identifies a model run: the model (its weights' checksum, so an updated
+/// model doesn't reuse old outputs) and every pixel of the image. Stable
+/// across builds and runs, since it names files on disk.
+fn fingerprint(model: Model, source: Image<'_>) -> u64 {
+    // FNV-1a, over whole 32-bit words to keep it quick (a 2048 px source is
+    // 11 million of them, about 15 ms).
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut add = |word: u32| h = (h ^ word as u64).wrapping_mul(0x0100_0000_01b3);
+    for b in model.sha256.bytes() {
+        add(b as u32);
+    }
+    add(source.width);
+    add(source.height);
+    for px in source.pixels {
         for c in px {
-            c.to_bits().hash(&mut h);
+            add(c.to_bits());
         }
     }
-    h.finish()
+    h
 }
 
 /// Load a model, on the GPU if one of this platform's GPU execution
@@ -447,8 +486,11 @@ mod tests {
             pixels,
         };
         assert_eq!(
-            fingerprint("m", image(rw, rh, &reduced)),
-            fingerprint("m", image(preview.width, preview.height, &preview.pixels))
+            fingerprint(models::SKY, image(rw, rh, &reduced)),
+            fingerprint(
+                models::SKY,
+                image(preview.width, preview.height, &preview.pixels)
+            )
         );
         // A preview is already small enough and goes to the network as is.
         assert!(
@@ -473,6 +515,35 @@ mod tests {
         let err = plugin.mask(&json!({"class": "subject"}), img).unwrap_err();
         assert!(matches!(err, PluginError::ModelUnavailable(_)), "{err}");
         assert!(plugin.mask(&json!({"class": "cat"}), img).is_err());
+    }
+
+    #[test]
+    fn masks_come_from_the_disk_in_a_later_session() {
+        let dir = std::env::temp_dir().join(format!("aperio-disk-masks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let px = flat(8, 6);
+        let img = Image {
+            width: 8,
+            height: 6,
+            pixels: &px,
+        };
+        // An earlier session's sky output: everything is sky.
+        let s = models::SKY.input_size;
+        let cache = DiskCache::new(dir.join("masks"), DISK_CACHE_BYTES);
+        cache.store(fingerprint(models::SKY, img), &vec![1.0; (s * s) as usize]);
+        // No models are installed, yet the mask renders from the disk.
+        let plugin = Segment::new(dir.join("models")).with_disk_cache(dir.join("masks"));
+        let sky = plugin.mask(&json!({"class": "sky"}), img).unwrap();
+        assert!(sky.iter().all(|m| *m > 0.99), "{sky:?}");
+        // Other photos still need the model.
+        let other = flat(8, 7);
+        let other = Image {
+            width: 8,
+            height: 7,
+            pixels: &other,
+        };
+        assert!(plugin.mask(&json!({"class": "sky"}), other).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

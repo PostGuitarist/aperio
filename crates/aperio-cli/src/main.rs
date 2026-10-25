@@ -17,8 +17,11 @@ const USAGE: &str = "usage: aperio render <input> <output.jpg|png|tiff> [--sidec
 /// The plugins built into this binary.
 fn plugins() -> Host {
     let mut host = Host::new();
-    host.register(aperio_plugin_segment::Segment::new(models::default_dir()))
-        .expect("bundled plugins register");
+    host.register(
+        aperio_plugin_segment::Segment::new(models::default_dir())
+            .with_disk_cache(aperio_plugin_segment::disk::default_dir()),
+    )
+    .expect("bundled plugins register");
     host.register(aperio_plugin_sky::SkyReplace::new())
         .expect("bundled plugins register");
     host.register(aperio_plugin_vignette::Vignette)
