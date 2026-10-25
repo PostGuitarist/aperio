@@ -24,7 +24,7 @@ A free, open-source photo editor with AI-assisted tools that runs entirely on yo
 - **Local-first.** Everything runs on your computer. No account, no telemetry.
 - **Open.** GPL-3.0-or-later, documented formats, and AI features as swappable plugins with audited licenses ([LICENSES.md](LICENSES.md)).
 
-Architecture: [docs/architecture.md](docs/architecture.md).
+Architecture: [docs/architecture.md](docs/architecture.md). What's next: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Building
 
