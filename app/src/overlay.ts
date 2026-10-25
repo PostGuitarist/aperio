@@ -160,6 +160,10 @@ export class Overlay {
   private frame: Frame | null = null;
   private drag: { move: Drag; end?: () => void } | null = null;
   private cursor: Point | null = null;
+  /** The stroke being painted, drawn on the overlay right away because the
+   * preview takes a moment to catch up. Kept until the next preview after
+   * the stroke ends. */
+  private wet: { points: Point[]; erase: boolean; done: boolean } | null = null;
 
   constructor(private svg: SVGSVGElement) {
     svg.addEventListener("pointerdown", (e) => this.down(e));
@@ -174,6 +178,7 @@ export class Overlay {
 
   setFrame(frame: Frame | null) {
     this.frame = frame;
+    if (this.wet?.done) this.wet = null;
     this.draw();
   }
 
@@ -368,8 +373,14 @@ export class Overlay {
 
   private drawBrush(f: Frame) {
     this.svg.classList.toggle("brush", true);
-    if (!this.cursor) return;
     const r = this.brushRadius(f);
+    if (this.wet) {
+      const { W, H } = f;
+      const pts = this.wet.points.map(([x, y]) => f.toView([x * W, y * H]));
+      if (this.cursor && !this.wet.done) pts.push(this.cursor);
+      this.svg.append(el("polyline", { points: pointsAttr(pts), "stroke-width": 2 * r, class: this.wet.erase ? "wet erase" : "wet" }));
+    }
+    if (!this.cursor) return;
     this.svg.append(el("circle", { cx: this.cursor[0], cy: this.cursor[1], r, class: "guide" }));
     const inner = r * (1 - editor.brush.feather);
     if (inner > 1) this.svg.append(el("circle", { cx: this.cursor[0], cy: this.cursor[1], r: inner, class: "guide dashed" }));
@@ -380,6 +391,8 @@ export class Overlay {
     const { size, feather, flow, erase } = editor.brush;
     const stroke = { points: [norm(f.toSource(this.local(e)), f.W, f.H)], size, feather, flow, erase };
     mask.strokes.push(stroke);
+    const wet = { points: stroke.points, erase, done: false };
+    this.wet = wet;
     changed();
     // A new point every quarter of the brush radius keeps strokes small.
     const spacing = (size * Math.max(f.W, f.H)) / 8;
@@ -392,6 +405,9 @@ export class Overlay {
       }
       stroke.points.push(norm(s, f.W, f.H));
       changed();
+    }, () => {
+      wet.done = true;
+      commit();
     });
   }
 }

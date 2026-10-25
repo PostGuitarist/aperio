@@ -1,5 +1,7 @@
 //! Color conversions shared by decoding, adjustments, and export.
 
+use std::sync::OnceLock;
+
 /// sRGB transfer function, encoded value to linear.
 pub fn srgb_to_linear(v: f32) -> f32 {
     if v <= 0.04045 {
@@ -17,6 +19,21 @@ pub fn linear_to_srgb(v: f32) -> f32 {
     } else {
         1.055 * v.powf(1.0 / 2.4) - 0.055
     }
+}
+
+/// [`linear_to_srgb`] as an 8-bit value, looked up in a table. For previews
+/// and thumbnails, which convert every pixel of every frame; it can differ
+/// from the exact conversion by one step.
+pub fn linear_to_srgb8(v: f32) -> u8 {
+    const STEPS: usize = 1 << 16;
+    static TABLE: OnceLock<Vec<u8>> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        (0..STEPS)
+            .map(|i| (linear_to_srgb(i as f32 / (STEPS - 1) as f32) * 255.0).round() as u8)
+            .collect()
+    });
+    // NaN becomes 0.
+    table[(v.clamp(0.0, 1.0) * (STEPS - 1) as f32 + 0.5) as usize]
 }
 
 /// Rec. 709 luminance of a linear RGB value.
@@ -54,6 +71,18 @@ pub fn blackbody_rgb(kelvin: f32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn srgb8_table_is_within_one_step() {
+        for i in 0..=100_000 {
+            let v = i as f32 / 100_000.0;
+            let exact = (linear_to_srgb(v) * 255.0).round() as i32;
+            assert!((linear_to_srgb8(v) as i32 - exact).abs() <= 1, "{v}");
+        }
+        assert_eq!(linear_to_srgb8(-1.0), 0);
+        assert_eq!(linear_to_srgb8(2.0), 255);
+        assert_eq!(linear_to_srgb8(f32::NAN), 0);
+    }
 
     #[test]
     fn srgb_round_trips() {

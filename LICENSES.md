@@ -28,6 +28,7 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | objc2-core-foundation, objc2-core-graphics, objc2-image-io | render, macOS only (HEIC decoding with ImageIO) | Zlib OR Apache-2.0 OR MIT |
 | windows | render, Windows only (HEIC decoding with WIC) | MIT OR Apache-2.0 |
 | libloading | render, Linux only (loading the system's libheif for HEIC) | ISC |
+| rayon | render (spreading per-pixel work across CPU cores) | MIT OR Apache-2.0 |
 | bytemuck | render | Zlib OR Apache-2.0 OR MIT |
 | pollster | render | Apache-2.0 OR MIT |
 | log | render | MIT OR Apache-2.0 |
