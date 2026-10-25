@@ -2,17 +2,29 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** v0.1, an early preview. Aperio opens RAW, JPEG, PNG, TIFF, and HEIC files with a live GPU preview; edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves; crops and straightens; adds brush, gradient, and radial mask layers with their own adjustments; makes AI sky and subject masks on your own machine and replaces skies; saves every edit to a sidecar with undo and redo; and exports JPEG, PNG, or 16-bit TIFF. Installers for macOS, Windows, and Linux are on the [Releases](https://github.com/PostGuitarist/aperio/releases) page.
+> **Status:** v0.1, an early preview.
+
+![Aperio's editor with a replaced sky](docs/images/editor-sky.jpg)
+
+## What it does
+
+- **Opens** RAW files from most cameras, JPEG, PNG, TIFF, and HEIC, with a live GPU preview.
+- **Library** that reads your folders in place: no import, no catalog.
+- **Adjusts** exposure, contrast, highlights, shadows, whites, blacks, white balance, vibrance, saturation, and tone curves; crops and straightens.
+- **Layers and masks:** brush, gradient, and radial masks, each layer with its own adjustments.
+- **AI masks for sky, subject, and background**, computed on your machine by open models, and **sky replacement**.
+- **Exports** JPEG, PNG, or 16-bit TIFF, with resizing, output sharpening, and metadata you choose.
+- **Plugins:** the AI tools are plugins, and you can write your own ([docs/plugins.md](docs/plugins.md)).
+
+**New here?** Download an installer from [Releases](https://github.com/PostGuitarist/aperio/releases), then follow [Getting started](docs/getting-started.md). The [release notes](docs/release-notes.md) list what's in v0.1 and its known limitations.
 
 ## Principles
 
 - **Non-destructive.** Originals are never modified. Edits live in a readable JSON sidecar next to each photo ([format](docs/sidecar-format.md)).
-- **Local-first.** Everything runs on your computer.
+- **Local-first.** Everything runs on your computer. No account, no telemetry.
 - **Open.** GPL-3.0-or-later, documented formats, and AI features as swappable plugins with audited licenses ([LICENSES.md](LICENSES.md)).
 
-## What's in v0.1
-
-See the [release notes](docs/release-notes.md). Architecture: [architecture.md](docs/architecture.md).
+Architecture: [docs/architecture.md](docs/architecture.md).
 
 ## Building
 
