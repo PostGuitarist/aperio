@@ -8,8 +8,10 @@ use std::sync::{Arc, Mutex};
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, PluginInfo};
 use aperio_plugin_segment::models;
+use aperio_render::export::{export_with_metadata, ExportMetadata};
+use aperio_render::metadata::{Metadata, MetadataPolicy};
 use aperio_render::{
-    browse, decode, export, jpeg_bytes, srgb8, ExportFormat, LinearImage, Renderer, Skipped,
+    browse, decode, jpeg_bytes, srgb8, ExportFormat, LinearImage, Renderer, Skipped,
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
@@ -248,6 +250,9 @@ struct ExportOptions {
     /// Resize so the longer edge is this many pixels (never enlarges).
     #[serde(default)]
     long_edge: Option<u32>,
+    /// How much of the original's metadata to copy.
+    #[serde(default)]
+    metadata: MetadataPolicy,
 }
 
 fn default_quality() -> u8 {
@@ -320,12 +325,18 @@ struct Exported {
 /// the folder if needed. Replaces an existing file, so the UI asks first.
 #[tauri::command]
 async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> CmdResult<Exported> {
-    let (mut img, doc, path) = {
+    let (mut img, doc, path, source) = {
         let session = state.session.lock().unwrap();
         let session = session.as_ref().ok_or("no photo is open")?;
         let path = options.target(&session.source)?;
-        (session.full.clone(), session.doc.clone(), path)
+        (
+            session.full.clone(),
+            session.doc.clone(),
+            path,
+            session.source.clone(),
+        )
     };
+    let policy = options.metadata;
     let format = options.format();
     let long_edge = options.long_edge;
     with_renderer(&state, move |r| {
@@ -338,7 +349,15 @@ async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> Cmd
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(err)?;
         }
-        export(&img, &path, format).map_err(err)?;
+        // A file whose metadata can't be read still exports, without it.
+        let original = Metadata::read(&source).unwrap_or_default();
+        let software = format!("Aperio {}", env!("CARGO_PKG_VERSION"));
+        let metadata = ExportMetadata {
+            source: &original,
+            policy,
+            software: &software,
+        };
+        export_with_metadata(&img, &path, format, Some(metadata)).map_err(err)?;
         Ok(Exported {
             width: img.width,
             height: img.height,
@@ -521,6 +540,7 @@ mod tests {
             format,
             quality: 90,
             long_edge: None,
+            metadata: MetadataPolicy::default(),
         }
     }
 

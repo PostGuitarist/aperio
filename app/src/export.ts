@@ -10,12 +10,14 @@ import { h } from "./panels";
 import { editor } from "./state";
 
 type Format = "jpeg" | "png" | "tiff";
+type MetadataPolicy = "all" | "no_location" | "none";
 
 interface Settings {
   format: Format;
   quality: number;
   resize: boolean;
   longEdge: number;
+  metadata: MetadataPolicy;
   name: string;
   /** A folder the user chose, or null for the default beside each photo. */
   folder: string | null;
@@ -35,7 +37,7 @@ interface Exported {
   skipped: SkippedStep[];
 }
 
-const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, name: "{name}_edit", folder: null };
+const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, metadata: "no_location", name: "{name}_edit", folder: null };
 const STORE = "aperio.export";
 
 const FORMATS: [Format, string, string][] = [
@@ -153,6 +155,14 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
   });
   const resizeField = h("div", { className: "field-row" }, resize, longEdge, h("span", { className: "muted" }, "px"));
 
+  const metadata = h("select", { id: "export-metadata" });
+  metadata.append(
+    h("option", { value: "no_location", textContent: "All except location" }),
+    h("option", { value: "all", textContent: "All, including location" }),
+    h("option", { value: "none", textContent: "None" }),
+  );
+  metadata.addEventListener("change", () => update({ metadata: metadata.value as MetadataPolicy }));
+
   const folder = h("output", { className: "path mono" });
   const choose = h("button", { type: "button", textContent: "Choose…" });
   choose.addEventListener("click", async () => {
@@ -174,6 +184,8 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     h("span", {}, "sRGB"),
     h("label", { className: "muted", htmlFor: "export-resize" }, "Resize"),
     resizeField,
+    h("label", { className: "muted", htmlFor: "export-metadata" }, "Metadata"),
+    metadata,
   );
   const right = h(
     "div",
@@ -210,7 +222,7 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
   }
 
   function options() {
-    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null };
+    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null, metadata: s.metadata };
   }
 
   let exists = false;
@@ -252,6 +264,7 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     longEdge.hidden = !s.resize;
     longEdge.nextElementSibling!.toggleAttribute("hidden", !s.resize);
     if (document.activeElement !== longEdge) longEdge.value = String(s.longEdge);
+    metadata.value = s.metadata;
     folder.textContent = currentFolder();
     folder.title = currentFolder();
     besidePhoto.hidden = s.folder === null;
