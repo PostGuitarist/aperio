@@ -57,7 +57,17 @@ Models are not bundled with the app or the repository. They're downloaded once, 
 |---|---|---|---|---|
 | [Sky segmentation (U²-Net)](https://github.com/xiongzhu666/Sky-Segmentation-and-Post-processing) by xiongzhu666 | AI sky mask | MIT (repository LICENSE; the ONNX mirror at [JianyuanWang/skyseg](https://huggingface.co/JianyuanWang/skyseg) restates it) | Not published. Architecture from [U²-Net](https://github.com/xuebinqin/U-2-Net) (Apache-2.0). | Optional download, 176 MB, `skyseg.onnx` at revision `3ba8c6d` |
 | [BiRefNet lite](https://github.com/ZhengPeng7/BiRefNet) by Peng Zheng et al. | AI subject mask | MIT ([model card](https://huggingface.co/ZhengPeng7/BiRefNet_lite)) | Public academic segmentation datasets listed in the BiRefNet README (e.g. DIS5K) | Optional download, 224 MB, ONNX export at [onnx-community/BiRefNet_lite-ONNX](https://huggingface.co/onnx-community/BiRefNet_lite-ONNX) revision `de15b22` |
-| [ISNet general use (DIS)](https://github.com/xuebinqin/DIS) by Xuebin Qin et al. | Faster AI subject mask. **Not offered by default builds**: only with the `fast-subject` Cargo feature, which is off. | None stated. The DIS code is Apache-2.0, but the weights' release doesn't state a license. | [DIS5K](https://github.com/xuebinqin/DIS), whose terms allow non-commercial research and education only | With the feature on, a separate download the user chooses after a notice about these terms (never part of "Download models"), 179 MB, rembg's ONNX export from its [`v0.0.0` release](https://github.com/danielgatis/rembg/releases/tag/v0.0.0), SHA-256 `60920e99…` |
+| [ISNet general use (DIS)](https://github.com/xuebinqin/DIS) by Xuebin Qin et al. | Faster AI subject mask. Offered by default builds as an opt-in download (the `fast-subject` Cargo feature, on by default in the app and CLI); `--no-default-features` builds leave it out. | None stated. The DIS code is Apache-2.0, but the weights' release doesn't state a license. | [DIS5K](https://github.com/xuebinqin/DIS), whose terms allow non-commercial research and education only | Not bundled or mirrored by Aperio. A separate download the user chooses after a notice about these terms (never part of "Download models"), 179 MB, rembg's ONNX export from its [`v0.0.0` release](https://github.com/danielgatis/rembg/releases/tag/v0.0.0), SHA-256 `60920e99…` |
+
+### Why ISNet is offered despite the gaps
+
+ISNet is the one model that doesn't meet the rule above for clearly licensed weights. It's offered because it makes subject masks about 15 times faster (1.5 s against 15–20 s on a CPU), and the maintainer chose that trade-off for v0.1 (2026-10-25). The safeguards are:
+
+- Aperio never bundles, mirrors, or redistributes the weights. The app fetches them from rembg's public release only when the user asks, after showing the license notice.
+- "Download models" never includes it, and BiRefNet stays the default "Best" subject model.
+- Packagers who need a clean model set build with `--no-default-features`.
+
+It will be replaced as soon as a comparably fast subject model with permissively licensed weights and training data is available.
 
 ## Fonts, icons, and other assets
 

@@ -16,7 +16,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.7", features = [] }
 
 [features]
-# ISNet as an optional "fast" subject model; off by default (see LICENSES.md).
+# ISNet as an optional "fast" subject model, offered as a separate download
+# with a license notice (see LICENSES.md). Build with --no-default-features
+# to leave it out.
+default = ["fast-subject"]
 fast-subject = ["aperio-plugin-segment/fast-subject"]
 
 [dependencies]

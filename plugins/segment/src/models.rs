@@ -104,7 +104,7 @@ pub const FAST_SUBJECT: Model = Model {
 };
 
 /// The models this build offers. ISNet is only offered with the
-/// `fast-subject` feature, which is off by default.
+/// `fast-subject` feature, which the app and CLI turn on by default.
 #[cfg(feature = "fast-subject")]
 pub const ALL: [Model; 3] = [SKY, SUBJECT, FAST_SUBJECT];
 #[cfg(not(feature = "fast-subject"))]

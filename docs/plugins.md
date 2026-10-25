@@ -80,11 +80,13 @@ The models run on the GPU where ONNX Runtime has a provider for it: DirectML on 
 aperio models bench photo.jpg
 ```
 
-ISNet general use is a much faster subject model (about 1.5 s on a 4-core CPU against BiRefNet's 15–20 s), with softer edges. Its weights don't state a license and its training data is non-commercial (see [LICENSES.md](../LICENSES.md)), so it's behind the `fast-subject` Cargo feature, which is off by default. With the feature on, it's a separate download with its own notice (`aperio models download isnet_general_use`), and subject layers get a Best/Fast switch. A layer set to Fast uses BiRefNet where ISNet isn't downloaded or the feature is off.
+ISNet general use is a much faster subject model (about 1.5 s on a 4-core CPU against BiRefNet's 15–20 s), with softer edges. Its weights don't state a license and its training data is non-commercial (see [LICENSES.md](../LICENSES.md)), so it's never part of "Download models": it's a separate download with its own notice (`aperio models download isnet_general_use`), and once it's downloaded, subject layers get a Best/Fast switch. A layer set to Fast uses BiRefNet where ISNet isn't downloaded or the build leaves it out.
+
+ISNet comes from the segment plugin's `fast-subject` Cargo feature. The app and the command line tool turn it on by default; build them with `--no-default-features` to leave it out entirely, for example for a distribution that only ships clearly licensed models:
 
 ```sh
-cargo run -p aperio-cli --features fast-subject -- models
-cd app && npm run tauri dev -- --features fast-subject
+cargo run -p aperio-cli --no-default-features -- models
+cd app && npm run tauri build -- -- --no-default-features
 ```
 
 ## Sky replacement
