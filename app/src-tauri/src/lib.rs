@@ -14,7 +14,9 @@ use tauri::State;
 use view::View;
 
 /// Longest edge of the on-screen preview. Full resolution is used for export.
-const PREVIEW_EDGE: u32 = 2048;
+/// Matching the segment plugin's network source size lets exports reuse the
+/// AI mask work done for the preview.
+const PREVIEW_EDGE: u32 = aperio_plugin_segment::SOURCE_EDGE;
 const PREVIEW_QUALITY: u8 = 85;
 
 #[derive(Default)]

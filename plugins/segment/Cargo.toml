@@ -21,6 +21,9 @@ serde_json.workspace = true
 sha2 = "0.10"
 ureq = "3"
 
+[dev-dependencies]
+aperio-render.workspace = true
+
 # GPU acceleration: each platform gets the ONNX Runtime build with its GPU
 # execution provider (the prebuilt binaries ort downloads come per target).
 [target.'cfg(windows)'.dependencies]
