@@ -10,6 +10,7 @@ import { h } from "./panels";
 import { editor } from "./state";
 
 type Format = "jpeg" | "png" | "tiff";
+type MetadataPolicy = "all" | "no_location" | "none";
 type SharpenFor = "none" | "screen" | "print";
 type Strength = "low" | "standard" | "high";
 
@@ -18,6 +19,7 @@ interface Settings {
   quality: number;
   resize: boolean;
   longEdge: number;
+  metadata: MetadataPolicy;
   sharpen: SharpenFor;
   strength: Strength;
   name: string;
@@ -39,7 +41,7 @@ interface Exported {
   skipped: SkippedStep[];
 }
 
-const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, sharpen: "none", strength: "standard", name: "{name}_edit", folder: null };
+const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, sharpen: "none", strength: "standard", metadata: "no_location", name: "{name}_edit", folder: null };
 const STORE = "aperio.export";
 
 const FORMATS: [Format, string, string][] = [
@@ -157,6 +159,13 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
   });
   const resizeField = h("div", { className: "field-row" }, resize, longEdge, h("span", { className: "muted" }, "px"));
 
+  const metadata = h("select", { id: "export-metadata" });
+  metadata.append(
+    h("option", { value: "no_location", textContent: "All except location" }),
+    h("option", { value: "all", textContent: "All, including location" }),
+    h("option", { value: "none", textContent: "None" }),
+  );
+  metadata.addEventListener("change", () => update({ metadata: metadata.value as MetadataPolicy }));
   const sharpen = h("select", { id: "export-sharpen" });
   sharpen.append(
     h("option", { value: "none", textContent: "No sharpening" }),
@@ -197,6 +206,8 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     resizeField,
     h("label", { className: "muted", htmlFor: "export-sharpen" }, "Sharpen for"),
     sharpenField,
+    h("label", { className: "muted", htmlFor: "export-metadata" }, "Metadata"),
+    metadata,
   );
   const right = h(
     "div",
@@ -233,7 +244,7 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
   }
 
   function options() {
-    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null, sharpen: s.sharpen === "none" ? null : { target: s.sharpen, strength: s.strength } };
+    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null, sharpen: s.sharpen === "none" ? null : { target: s.sharpen, strength: s.strength }, metadata: s.metadata };
   }
 
   let exists = false;
@@ -275,6 +286,7 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     longEdge.hidden = !s.resize;
     longEdge.nextElementSibling!.toggleAttribute("hidden", !s.resize);
     if (document.activeElement !== longEdge) longEdge.value = String(s.longEdge);
+    metadata.value = s.metadata;
     sharpen.value = s.sharpen;
     strength.value = s.strength;
     strength.hidden = s.sharpen === "none";

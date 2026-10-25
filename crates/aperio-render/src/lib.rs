@@ -16,6 +16,7 @@ pub mod export;
 pub mod geometry;
 mod gpu;
 pub mod masks;
+pub mod metadata;
 pub mod sharpen;
 pub mod tone;
 
