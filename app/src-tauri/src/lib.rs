@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, PluginInfo};
 use aperio_plugin_segment::models;
+use aperio_render::sharpen::{SharpenFor, Strength};
 use aperio_render::{
     browse, decode, export, jpeg_bytes, srgb8, ExportFormat, LinearImage, Renderer, Skipped,
 };
@@ -248,6 +249,15 @@ struct ExportOptions {
     /// Resize so the longer edge is this many pixels (never enlarges).
     #[serde(default)]
     long_edge: Option<u32>,
+    /// Output sharpening after the resize, or none.
+    #[serde(default)]
+    sharpen: Option<SharpenOptions>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct SharpenOptions {
+    target: SharpenFor,
+    strength: Strength,
 }
 
 fn default_quality() -> u8 {
@@ -328,13 +338,17 @@ async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> Cmd
     };
     let format = options.format();
     let long_edge = options.long_edge;
+    let sharpen = options.sharpen;
     with_renderer(&state, move |r| {
         let started = std::time::Instant::now();
         let skipped = r.render(&doc, &mut img);
-        let img = match long_edge {
+        let mut img = match long_edge {
             Some(edge) => img.resized(edge),
             None => img,
         };
+        if let Some(s) = sharpen {
+            aperio_render::sharpen::sharpen(&mut img, s.target, s.strength);
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(err)?;
         }
@@ -521,6 +535,7 @@ mod tests {
             format,
             quality: 90,
             long_edge: None,
+            sharpen: None,
         }
     }
 
