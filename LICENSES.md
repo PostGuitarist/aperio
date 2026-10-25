@@ -36,13 +36,13 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
 | dirs | segment plugin (models folder), app (thumbnail cache) | MIT OR Apache-2.0 |
 
-HEIC photos are decoded by the operating system, so Aperio ships no HEVC decoder and needs no HEVC patent license: ImageIO on macOS; on Windows, Microsoft's HEIF Image Extensions and HEVC Video Extensions, which the user installs from the Microsoft Store; on Linux, libheif (LGPL-3.0) and its decoder plugins (libde265 is LGPL-3.0), loaded at run time from the system if the user has installed them. None of them is linked or bundled.
-
 On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Development builds copy `DirectML.dll` next to the executable. Whether installers ship it, or rely on the system copy, has to be settled before the first Windows release.
 
 Workspace crates are GPL-3.0-or-later, except the example plugin `aperio-plugin-vignette`, which is MIT OR Apache-2.0 so it can be copied freely as a template for third-party plugins.
 
 Transitive Rust dependencies (several hundred crates, mostly Tauri's platform layers) are all under licenses from the allow-list. Run `cargo deny list -l license` for the full current list.
+
+HEIC photos are decoded by the operating system, so Aperio ships no HEVC decoder and needs no HEVC patent license: ImageIO on macOS; on Windows, Microsoft's HEIF Image Extensions and HEVC Video Extensions, which the user installs from the Microsoft Store; on Linux, libheif (LGPL-3.0) and its decoder plugins (libde265 is LGPL-3.0), loaded at run time from the system if the user has installed them. None of them is linked or bundled.
 
 ## JavaScript packages (direct dependencies)
 
