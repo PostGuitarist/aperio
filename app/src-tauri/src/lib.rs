@@ -10,6 +10,7 @@ use aperio_plugin::{Host, PluginInfo};
 use aperio_plugin_segment::models;
 use aperio_render::export::{export_with_metadata, ExportMetadata};
 use aperio_render::metadata::{Metadata, MetadataPolicy};
+use aperio_render::sharpen::{SharpenFor, Strength};
 use aperio_render::{
     browse, decode, jpeg_bytes, srgb8, ExportFormat, LinearImage, Renderer, Skipped,
 };
@@ -253,6 +254,15 @@ struct ExportOptions {
     /// How much of the original's metadata to copy.
     #[serde(default)]
     metadata: MetadataPolicy,
+    /// Output sharpening after the resize, or none.
+    #[serde(default)]
+    sharpen: Option<SharpenOptions>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct SharpenOptions {
+    target: SharpenFor,
+    strength: Strength,
 }
 
 fn default_quality() -> u8 {
@@ -339,13 +349,17 @@ async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> Cmd
     let policy = options.metadata;
     let format = options.format();
     let long_edge = options.long_edge;
+    let sharpen = options.sharpen;
     with_renderer(&state, move |r| {
         let started = std::time::Instant::now();
         let skipped = r.render(&doc, &mut img);
-        let img = match long_edge {
+        let mut img = match long_edge {
             Some(edge) => img.resized(edge),
             None => img,
         };
+        if let Some(s) = sharpen {
+            aperio_render::sharpen::sharpen(&mut img, s.target, s.strength);
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(err)?;
         }
@@ -541,6 +555,7 @@ mod tests {
             quality: 90,
             long_edge: None,
             metadata: MetadataPolicy::default(),
+            sharpen: None,
         }
     }
 

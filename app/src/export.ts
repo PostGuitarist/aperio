@@ -11,6 +11,8 @@ import { editor } from "./state";
 
 type Format = "jpeg" | "png" | "tiff";
 type MetadataPolicy = "all" | "no_location" | "none";
+type SharpenFor = "none" | "screen" | "print";
+type Strength = "low" | "standard" | "high";
 
 interface Settings {
   format: Format;
@@ -18,6 +20,8 @@ interface Settings {
   resize: boolean;
   longEdge: number;
   metadata: MetadataPolicy;
+  sharpen: SharpenFor;
+  strength: Strength;
   name: string;
   /** A folder the user chose, or null for the default beside each photo. */
   folder: string | null;
@@ -37,7 +41,7 @@ interface Exported {
   skipped: SkippedStep[];
 }
 
-const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, metadata: "no_location", name: "{name}_edit", folder: null };
+const DEFAULTS: Settings = { format: "jpeg", quality: 90, resize: false, longEdge: 3840, sharpen: "none", strength: "standard", metadata: "no_location", name: "{name}_edit", folder: null };
 const STORE = "aperio.export";
 
 const FORMATS: [Format, string, string][] = [
@@ -162,6 +166,22 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     h("option", { value: "none", textContent: "None" }),
   );
   metadata.addEventListener("change", () => update({ metadata: metadata.value as MetadataPolicy }));
+  const sharpen = h("select", { id: "export-sharpen" });
+  sharpen.append(
+    h("option", { value: "none", textContent: "No sharpening" }),
+    h("option", { value: "screen", textContent: "Screen" }),
+    h("option", { value: "print", textContent: "Print" }),
+  );
+  sharpen.addEventListener("change", () => update({ sharpen: sharpen.value as SharpenFor }));
+  const strength = h("select", { id: "export-strength" });
+  strength.setAttribute("aria-label", "Sharpening strength");
+  strength.append(
+    h("option", { value: "low", textContent: "Low" }),
+    h("option", { value: "standard", textContent: "Standard" }),
+    h("option", { value: "high", textContent: "High" }),
+  );
+  strength.addEventListener("change", () => update({ strength: strength.value as Strength }));
+  const sharpenField = h("div", { className: "field-row" }, sharpen, strength);
 
   const folder = h("output", { className: "path mono" });
   const choose = h("button", { type: "button", textContent: "Choose…" });
@@ -184,6 +204,8 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     h("span", {}, "sRGB"),
     h("label", { className: "muted", htmlFor: "export-resize" }, "Resize"),
     resizeField,
+    h("label", { className: "muted", htmlFor: "export-sharpen" }, "Sharpen for"),
+    sharpenField,
     h("label", { className: "muted", htmlFor: "export-metadata" }, "Metadata"),
     metadata,
   );
@@ -222,7 +244,7 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
   }
 
   function options() {
-    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null, metadata: s.metadata };
+    return { folder: currentFolder(), name: s.name, format: s.format, quality: s.quality, long_edge: s.resize ? s.longEdge : null, sharpen: s.sharpen === "none" ? null : { target: s.sharpen, strength: s.strength }, metadata: s.metadata };
   }
 
   let exists = false;
@@ -265,6 +287,9 @@ export function buildExport(onDone: (e: Exported) => void): ExportScreen {
     longEdge.nextElementSibling!.toggleAttribute("hidden", !s.resize);
     if (document.activeElement !== longEdge) longEdge.value = String(s.longEdge);
     metadata.value = s.metadata;
+    sharpen.value = s.sharpen;
+    strength.value = s.strength;
+    strength.hidden = s.sharpen === "none";
     folder.textContent = currentFolder();
     folder.title = currentFolder();
     besidePhoto.hidden = s.folder === null;
