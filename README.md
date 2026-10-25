@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** v0.1, an early preview. Aperio opens RAW, JPEG, PNG, and TIFF files with a live GPU preview; edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves; crops and straightens; adds brush, gradient, and radial mask layers with their own adjustments; makes AI sky and subject masks on your own machine and replaces skies; saves every edit to a sidecar with undo and redo; and exports JPEG, PNG, or 16-bit TIFF. Installers for macOS, Windows, and Linux are on the [Releases](https://github.com/PostGuitarist/aperio/releases) page.
+> **Status:** v0.1, an early preview. Aperio opens RAW, JPEG, PNG, TIFF, and HEIC files with a live GPU preview; edits exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, vibrance, and tone curves; crops and straightens; adds brush, gradient, and radial mask layers with their own adjustments; makes AI sky and subject masks on your own machine and replaces skies; saves every edit to a sidecar with undo and redo; and exports JPEG, PNG, or 16-bit TIFF. Installers for macOS, Windows, and Linux are on the [Releases](https://github.com/PostGuitarist/aperio/releases) page.
 
 ## Principles
 

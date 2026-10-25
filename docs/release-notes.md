@@ -2,12 +2,12 @@ The first release of Aperio, a free, open-source photo editor that runs entirely
 
 ## What's in it
 
-- **Open** RAW files from most cameras (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG, PEF, SRW), JPEG, PNG, and TIFF, with a GPU-accelerated live preview.
+- **Open** RAW files from most cameras (CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG, PEF, SRW), JPEG, PNG, TIFF, and HEIC (using your system's own HEIC decoder), with a GPU-accelerated live preview.
 - **Library** of the photos in a folder, with thumbnails and camera details.
 - **Adjust** exposure, contrast, highlights, shadows, whites, blacks, white balance, saturation, and vibrance, and edit tone curves.
 - **Crop and straighten.**
 - **Layers** with their own adjustments and opacity, masked with a brush, a linear gradient, or a radial gradient.
-- **AI sky and subject masks**, computed on your machine with open models, and **sky replacement** with a sky photo of your choice. The models (about 400 MB) are downloaded once, when you ask.
+- **AI sky and subject masks**, computed on your machine with open models, and **sky replacement** with a sky photo of your choice. The models (about 400 MB) are downloaded once, when you ask, and start working on each photo as soon as it opens. An optional fast subject model brings subject masks down to a couple of seconds; its weights don't state a license and were trained on non-commercial data, so it's a separate download with a notice ([details](https://github.com/PostGuitarist/aperio/blob/main/LICENSES.md)).
 - **Non-destructive editing.** Every edit is saved to a readable JSON sidecar next to the photo, with undo and redo.
 - **Export** to JPEG, PNG, or 16-bit TIFF, with resizing, output sharpening, and a choice of which metadata to copy.
 - **Plugins.** The AI tools are plugins built on a documented API, with an example plugin to start from ([docs/plugins.md](https://github.com/PostGuitarist/aperio/blob/main/docs/plugins.md)).
@@ -25,5 +25,6 @@ These builds aren't signed with a paid developer certificate yet, so your system
 - Intel Macs aren't supported by this build.
 - On macOS, subject masks run on the CPU (Core ML can't run the subject model yet); sky masks use the GPU. Linux runs AI masks on the CPU.
 - Exports are sRGB only.
+- HEIC on Windows needs Microsoft's HEIF Image Extensions and HEVC Video Extensions from the Microsoft Store. On Linux it needs libheif and its HEVC plugin (`sudo apt install libheif1 libheif-plugin-libde265` on Debian or Ubuntu).
 
 Licenses for every dependency and model are listed in [LICENSES.md](https://github.com/PostGuitarist/aperio/blob/main/LICENSES.md).
