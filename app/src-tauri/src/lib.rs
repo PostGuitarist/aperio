@@ -8,7 +8,7 @@ use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, PluginInfo};
 use aperio_plugin_segment::models;
 use aperio_render::{decode, export, jpeg_bytes, ExportFormat, LinearImage, Renderer, Skipped};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::State;
 use view::View;
@@ -94,6 +94,8 @@ struct Opened {
     /// measure against.
     preview_width: u32,
     preview_height: u32,
+    /// The folder the photo is in, for the export screen's default.
+    folder: PathBuf,
     doc: EditDocument,
 }
 
@@ -131,6 +133,7 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
         height: full.height,
         preview_width: preview.width,
         preview_height: preview.height,
+        folder: source.parent().map(Path::to_path_buf).unwrap_or_default(),
         doc: doc.clone(),
     };
     prepare_ai_masks(&state.plugins, &preview);
@@ -222,22 +225,129 @@ fn last_skipped(state: State<'_, AppState>) -> Vec<SkippedStep> {
     state.skipped.lock().unwrap().clone()
 }
 
-/// Render at full resolution and write to `path`; the format follows the
-/// extension. Returns the steps that were left out.
+/// The export screen's settings.
+#[derive(Debug, Deserialize)]
+struct ExportOptions {
+    folder: PathBuf,
+    /// File name without extension; `{name}` stands for the original's name.
+    name: String,
+    format: OutputFormat,
+    /// JPEG quality, 1 to 100.
+    #[serde(default = "default_quality")]
+    quality: u8,
+    /// Resize so the longer edge is this many pixels (never enlarges).
+    #[serde(default)]
+    long_edge: Option<u32>,
+}
+
+fn default_quality() -> u8 {
+    90
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum OutputFormat {
+    Jpeg,
+    Png,
+    Tiff,
+}
+
+impl ExportOptions {
+    /// The file this would write, checked for names that would escape the
+    /// chosen folder.
+    fn target(&self, source: &Path) -> CmdResult<PathBuf> {
+        let stem = source.file_stem().unwrap_or_default().to_string_lossy();
+        let name = self.name.trim().replace("{name}", &stem);
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err("choose a file name without slashes".into());
+        }
+        let ext = match self.format {
+            OutputFormat::Jpeg => "jpg",
+            OutputFormat::Png => "png",
+            OutputFormat::Tiff => "tif",
+        };
+        Ok(self.folder.join(format!("{name}.{ext}")))
+    }
+
+    fn format(&self) -> ExportFormat {
+        match self.format {
+            OutputFormat::Jpeg => ExportFormat::Jpeg {
+                quality: self.quality.clamp(1, 100),
+            },
+            OutputFormat::Png => ExportFormat::Png,
+            OutputFormat::Tiff => ExportFormat::Tiff,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ExportTarget {
+    path: PathBuf,
+    exists: bool,
+}
+
+/// Where an export with `options` would go, and whether a file is already
+/// there, so the export screen can show it and ask before replacing it.
 #[tauri::command]
-async fn export_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Vec<SkippedStep>> {
-    let format = ExportFormat::from_path(&path).map_err(err)?;
-    let (mut img, doc) = {
+fn export_target(options: ExportOptions, state: State<'_, AppState>) -> CmdResult<ExportTarget> {
+    let session = state.session.lock().unwrap();
+    let session = session.as_ref().ok_or("no photo is open")?;
+    let path = options.target(&session.source)?;
+    let exists = path.exists();
+    Ok(ExportTarget { path, exists })
+}
+
+#[derive(Serialize)]
+struct Exported {
+    path: PathBuf,
+    width: u32,
+    height: u32,
+    ms: u64,
+    skipped: Vec<SkippedStep>,
+}
+
+/// Render at full resolution, resize if asked, and write the file, creating
+/// the folder if needed. Replaces an existing file, so the UI asks first.
+#[tauri::command]
+async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> CmdResult<Exported> {
+    let (mut img, doc, path) = {
         let session = state.session.lock().unwrap();
         let session = session.as_ref().ok_or("no photo is open")?;
-        (session.full.clone(), session.doc.clone())
+        let path = options.target(&session.source)?;
+        (session.full.clone(), session.doc.clone(), path)
     };
+    let format = options.format();
+    let long_edge = options.long_edge;
     with_renderer(&state, move |r| {
+        let started = std::time::Instant::now();
         let skipped = r.render(&doc, &mut img);
+        let img = match long_edge {
+            Some(edge) => img.resized(edge),
+            None => img,
+        };
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(err)?;
+        }
         export(&img, &path, format).map_err(err)?;
-        Ok(skipped.into_iter().map(Into::into).collect())
+        Ok(Exported {
+            width: img.width,
+            height: img.height,
+            ms: started.elapsed().as_millis() as u64,
+            path,
+            skipped: skipped.into_iter().map(Into::into).collect(),
+        })
     })
     .await?
+}
+
+/// Whether rendering runs on the GPU, once the renderer has started.
+#[tauri::command]
+fn renderer_info(state: State<'_, AppState>) -> Option<bool> {
+    state
+        .renderer
+        .try_lock()
+        .ok()
+        .and_then(|r| r.as_ref().map(Renderer::uses_gpu))
 }
 
 /// Run `f` with the shared renderer on a blocking thread (AI masks can take
@@ -350,10 +460,51 @@ pub fn run() {
             open_image,
             render_preview,
             last_skipped,
+            export_target,
             export_image,
+            renderer_info,
             models_status,
             download_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aperio");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(name: &str, format: OutputFormat) -> ExportOptions {
+        ExportOptions {
+            folder: PathBuf::from("/out"),
+            name: name.into(),
+            format,
+            quality: 90,
+            long_edge: None,
+        }
+    }
+
+    #[test]
+    fn export_target_fills_in_the_name_and_extension() {
+        let source = Path::new("/photos/DSC_2041.NEF");
+        assert_eq!(
+            options("{name}_edit", OutputFormat::Jpeg).target(source),
+            Ok(PathBuf::from("/out/DSC_2041_edit.jpg"))
+        );
+        assert_eq!(
+            options("print", OutputFormat::Tiff).target(source),
+            Ok(PathBuf::from("/out/print.tif"))
+        );
+    }
+
+    #[test]
+    fn export_target_rejects_names_that_leave_the_folder() {
+        let source = Path::new("/photos/a.jpg");
+        for bad in ["", "  ", "../a", "sub/a", "a\\b", ".."] {
+            assert!(
+                options(bad, OutputFormat::Png).target(source).is_err(),
+                "{bad}"
+            );
+        }
+    }
 }
