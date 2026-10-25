@@ -7,6 +7,7 @@ export type Channel = "rgb" | "red" | "green" | "blue" | "luma";
 export type Operation =
   | { op: "exposure"; ev: number }
   | { op: "contrast"; amount: number }
+  | { op: "tone"; highlights: number; shadows: number; whites: number; blacks: number }
   | { op: "white_balance"; temperature_k: number; tint: number }
   | { op: "color"; saturation: number; vibrance: number }
   | { op: "curve"; channel: Channel; points: Point[] }
@@ -52,6 +53,10 @@ export const NEUTRAL_KELVIN = 6500;
 export interface Adjustments {
   exposure: number;
   contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
   temperature: number;
   tint: number;
   saturation: number;
@@ -61,19 +66,24 @@ export interface Adjustments {
 export const NEUTRAL: Adjustments = {
   exposure: 0,
   contrast: 0,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
   temperature: NEUTRAL_KELVIN,
   tint: 0,
   saturation: 0,
   vibrance: 0,
 };
 
-const ADJUST_OPS = new Set(["exposure", "contrast", "white_balance", "color"]);
+const ADJUST_OPS = new Set(["exposure", "contrast", "tone", "white_balance", "color"]);
 
 export function readAdjustments(layer: Layer): Adjustments {
   const a = { ...NEUTRAL };
   for (const op of layer.operations) {
     if (op.op === "exposure") a.exposure = op.ev;
     else if (op.op === "contrast") a.contrast = op.amount;
+    else if (op.op === "tone") [a.highlights, a.shadows, a.whites, a.blacks] = [op.highlights ?? 0, op.shadows ?? 0, op.whites ?? 0, op.blacks ?? 0];
     else if (op.op === "white_balance") [a.temperature, a.tint] = [op.temperature_k, op.tint];
     else if (op.op === "color") [a.saturation, a.vibrance] = [op.saturation, op.vibrance];
   }
@@ -88,6 +98,8 @@ export function writeAdjustments(layer: Layer, a: Adjustments) {
     ops.push({ op: "white_balance", temperature_k: a.temperature, tint: a.tint });
   if (a.exposure !== 0) ops.push({ op: "exposure", ev: a.exposure });
   if (a.contrast !== 0) ops.push({ op: "contrast", amount: a.contrast });
+  if (a.highlights !== 0 || a.shadows !== 0 || a.whites !== 0 || a.blacks !== 0)
+    ops.push({ op: "tone", highlights: a.highlights, shadows: a.shadows, whites: a.whites, blacks: a.blacks });
   if (a.saturation !== 0 || a.vibrance !== 0)
     ops.push({ op: "color", saturation: a.saturation, vibrance: a.vibrance });
   layer.operations = [...ops, ...layer.operations.filter((op) => !ADJUST_OPS.has(op.op))];

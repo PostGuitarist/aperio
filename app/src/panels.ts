@@ -115,9 +115,13 @@ function buildAdjust(root: HTMLElement) {
   const add = (body: HTMLElement, key: keyof Adjustments, label: string, min: number, max: number, step: number, format: (v: number) => string, track?: string) =>
     syncs.push(slider(body, { label, min, max, step, neutral: NEUTRAL[key], format, get: () => adj()[key], set: setter(key), track }));
 
-  const light = group(root, "Light", resetKeys(["exposure", "contrast"]));
+  const light = group(root, "Light", resetKeys(["exposure", "contrast", "highlights", "shadows", "whites", "blacks"]));
   add(light, "exposure", "Exposure", -5, 5, 0.05, (v) => `${signed(2)(v)} EV`);
   add(light, "contrast", "Contrast", -1, 1, 0.01, signed(2));
+  add(light, "highlights", "Highlights", -1, 1, 0.01, signed(2));
+  add(light, "shadows", "Shadows", -1, 1, 0.01, signed(2));
+  add(light, "whites", "Whites", -1, 1, 0.01, signed(2));
+  add(light, "blacks", "Blacks", -1, 1, 0.01, signed(2));
 
   const color = group(root, "Color", resetKeys(["temperature", "tint", "vibrance", "saturation"]));
   add(color, "temperature", "Temperature", 2000, 12000, 50, (v) => `${v} K`, "temp");
