@@ -77,7 +77,9 @@ unsafe fn decode_with_com(path: &Path) -> Result<LinearImage> {
         .CopyPixels(std::ptr::null(), stride as u32, &mut bytes)
         .map_err(wic)?;
     let pixels = bytes
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|p| {
             let v = |i: usize| u16::from_le_bytes([p[i], p[i + 1]]) as f32 / 65535.0;
             conversion.apply([v(0), v(2), v(4), v(6)])

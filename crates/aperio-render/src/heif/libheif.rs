@@ -189,7 +189,7 @@ pub fn decode(path: &Path) -> Result<LinearImage> {
                 ((1u32 << (api.image_bits)(image.0, CHANNEL_INTERLEAVED).clamp(9, 16)) - 1) as f32;
             for y in 0..height {
                 let row = &bytes[y * stride..y * stride + width * 8];
-                pixels.extend(row.chunks_exact(8).map(|p| {
+                pixels.extend(row.as_chunks::<8>().0.iter().map(|p| {
                     let v = |i: usize| u16::from_le_bytes([p[i], p[i + 1]]) as f32 / max;
                     conversion.apply([v(0), v(2), v(4), v(6)])
                 }));
@@ -197,15 +197,12 @@ pub fn decode(path: &Path) -> Result<LinearImage> {
         } else {
             for y in 0..height {
                 let row = &bytes[y * stride..y * stride + width * 4];
-                pixels.extend(row.chunks_exact(4).map(|p| {
-                    conversion.apply(
-                        p.iter()
-                            .map(|&v| v as f32 / 255.0)
-                            .collect::<Vec<_>>()
-                            .try_into()
-                            .unwrap(),
-                    )
-                }));
+                pixels.extend(
+                    row.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|p| conversion.apply(p.map(|v| v as f32 / 255.0))),
+                );
             }
         }
         Ok(LinearImage::new(width as u32, height as u32, pixels))
