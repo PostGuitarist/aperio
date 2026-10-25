@@ -3,6 +3,7 @@ use std::path::Path;
 use rawler::imgop::develop::{Intermediate, ProcessingStep, RawDevelop};
 
 use crate::color::srgb_to_linear;
+use crate::heif;
 use crate::{Error, LinearImage, Result};
 
 const RASTER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff"];
@@ -10,19 +11,22 @@ const RASTER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff"];
 /// Decode an original into linear RGBA.
 ///
 /// JPEG, PNG, and TIFF go through the `image` crate and are linearized from
-/// sRGB. Anything else is tried as a camera RAW file with rawler, which
+/// sRGB. HEIC/HEIF photos use the operating system's decoder (see
+/// [`crate::heif`]). Anything else is tried as a camera RAW file with rawler, which
 /// demosaics, applies the as-shot white balance and the camera color matrix,
 /// and returns linear sRGB-primaries data.
 pub fn decode(path: &Path) -> Result<LinearImage> {
     if is_raster(path) {
         decode_raster(path)
+    } else if heif::is_heif(path) {
+        heif::decode(path)
     } else {
         decode_raw(path)
     }
 }
 
-/// Whether `path` is a JPEG, PNG or TIFF by its extension; anything else is
-/// treated as a camera RAW file.
+/// Whether `path` is a JPEG, PNG or TIFF by its extension. Anything that
+/// isn't this or HEIF is treated as a camera RAW file.
 pub fn is_raster(path: &Path) -> bool {
     let ext = path
         .extension()

@@ -173,7 +173,11 @@ dependencies = [
  "bytemuck",
  "image",
  "kamadak-exif",
+ "libloading 0.8.9",
  "log",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-image-io",
  "pollster",
  "rawler",
  "serde",
@@ -181,6 +185,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tiff",
  "wgpu",
+ "windows",
 ]
 
 [[package]]
@@ -2894,6 +2899,16 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-image-io"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32b0446e98cf4a784cc7a0177715ff317eeaa8463841c616cfc78aa4f953c4ea"
+dependencies = [
+ "objc2-core-foundation",
+ "objc2-core-graphics",
 ]
 
 [[package]]

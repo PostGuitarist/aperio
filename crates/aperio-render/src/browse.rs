@@ -8,15 +8,21 @@ use rawler::decoders::RawDecodeParams;
 use rawler::rawsource::RawSource;
 
 use crate::decode::is_raster;
+use crate::heif::is_heif;
 use crate::metadata::{Metadata, Summary};
 use crate::{Error, Result};
 
 /// An sRGB thumbnail whose longer edge is at most `edge`, upright.
 ///
 /// RAW files use the camera's embedded preview, so this shows the photo as
-/// shot rather than as Aperio develops it. Raster files are decoded and
-/// shrunk.
+/// shot rather than as Aperio develops it. Raster and HEIF files are decoded
+/// and shrunk.
 pub fn thumbnail(path: &Path, edge: u32) -> Result<RgbImage> {
+    if is_heif(path) {
+        let img = crate::decode::decode(path)?.downscale(edge.saturating_mul(2));
+        let img = DynamicImage::ImageRgb8(crate::export::srgb8(&img));
+        return Ok(img.thumbnail(edge, edge).into_rgb8());
+    }
     let img = if is_raster(path) {
         let mut decoder = image::ImageReader::open(path)?
             .with_guessed_format()?
