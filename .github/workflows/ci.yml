@@ -49,6 +49,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The debug and release targets, the sky model, and the cache archives
+      # don't fit in the runner's free space, so drop preinstalled SDKs that
+      # Aperio doesn't use.
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
