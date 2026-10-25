@@ -15,6 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 
+[features]
+# ISNet as an optional "fast" subject model; off by default (see LICENSES.md).
+fast-subject = ["aperio-plugin-segment/fast-subject"]
+
 [dependencies]
 aperio-core.workspace = true
 aperio-plugin.workspace = true

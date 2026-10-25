@@ -110,6 +110,7 @@ dependencies = [
  "aperio-plugin-sky",
  "aperio-plugin-vignette",
  "aperio-render",
+ "serde_json",
 ]
 
 [[package]]

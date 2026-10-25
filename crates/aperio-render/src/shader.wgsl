@@ -102,9 +102,15 @@ fn apply(op: AdjustOp, px: vec3<f32>) -> vec3<f32> {
                 }
                 return px * (tone(start, lum) / lum);
             }
-            var out = px;
-            out[channel - 1u] = tone(start, px[channel - 1u]);
-            return out;
+            // No dynamic vector index here: Direct3D's shader compiler can't
+            // compile one inside the per-pixel loop.
+            if channel == 1u {
+                return vec3<f32>(tone(start, px.r), px.g, px.b);
+            }
+            if channel == 2u {
+                return vec3<f32>(px.r, tone(start, px.g), px.b);
+            }
+            return vec3<f32>(px.r, px.g, tone(start, px.b));
         }
         default: {
             return px;

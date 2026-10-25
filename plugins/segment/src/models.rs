@@ -12,12 +12,12 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 /// A model file this plugin can use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Model {
     /// Short id, also the file name without `.onnx`.
     pub id: &'static str,
     pub name: &'static str,
-    /// SPDX license of the weights.
+    /// SPDX license of the weights, or what's known when there's none.
     pub license: &'static str,
     /// Project page, for LICENSES.md and the app.
     pub source: &'static str,
@@ -27,9 +27,22 @@ pub struct Model {
     pub size_bytes: u64,
     /// Square input size the network expects.
     pub input_size: u32,
+    /// Per-channel mean and standard deviation the network was trained
+    /// with, for sRGB values in 0..1.
+    pub mean: [f32; 3],
+    pub std: [f32; 3],
     /// Whether the output is a logit (needs a sigmoid) or already 0..1.
     pub logits: bool,
+    /// Optional models aren't part of the default download; the user picks
+    /// them separately, after seeing [`Model::notice`].
+    pub optional: bool,
+    /// What the user should know before downloading, such as license gaps.
+    pub notice: Option<&'static str>,
 }
+
+/// ImageNet statistics, which most segmentation models are trained with.
+const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
+const IMAGENET_STD: [f32; 3] = [0.229, 0.224, 0.225];
 
 /// U²-Net sky segmentation by xiongzhu666, MIT.
 pub const SKY: Model = Model {
@@ -41,7 +54,11 @@ pub const SKY: Model = Model {
     sha256: "ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39",
     size_bytes: 175_997_079,
     input_size: 320,
+    mean: IMAGENET_MEAN,
+    std: IMAGENET_STD,
     logits: false,
+    optional: false,
+    notice: None,
 };
 
 /// BiRefNet lite (salient object / subject segmentation), MIT.
@@ -54,10 +71,52 @@ pub const SUBJECT: Model = Model {
     sha256: "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
     size_bytes: 224_005_088,
     input_size: 1024,
+    mean: IMAGENET_MEAN,
+    std: IMAGENET_STD,
     logits: true,
+    optional: false,
+    notice: None,
 };
 
+/// ISNet general use (DIS), a much faster subject model with softer edges.
+/// Optional: the weights state no license and were trained on DIS5K, whose
+/// terms are non-commercial (see LICENSES.md). This is rembg's export of the
+/// authors' released weights.
+pub const FAST_SUBJECT: Model = Model {
+    id: "isnet_general_use",
+    name: "Fast subject segmentation (ISNet)",
+    license: "No license stated",
+    source: "https://github.com/xuebinqin/DIS",
+    url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+    sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+    size_bytes: 178_648_008,
+    input_size: 1024,
+    mean: [0.5; 3],
+    std: [1.0; 3],
+    logits: false,
+    optional: true,
+    notice: Some(
+        "About 15 times faster than BiRefNet, with softer edges. Its authors \
+         haven't stated a license for the weights, and they were trained on \
+         DIS5K, whose terms allow only non-commercial research and education. \
+         Download it only if that's acceptable for how you use your photos.",
+    ),
+};
+
+/// The models this build offers. ISNet is only offered with the
+/// `fast-subject` feature, which is off by default.
+#[cfg(feature = "fast-subject")]
+pub const ALL: [Model; 3] = [SKY, SUBJECT, FAST_SUBJECT];
+#[cfg(not(feature = "fast-subject"))]
 pub const ALL: [Model; 2] = [SKY, SUBJECT];
+
+/// Whether this build offers [`FAST_SUBJECT`].
+pub const FAST_SUBJECT_ENABLED: bool = cfg!(feature = "fast-subject");
+
+/// Look a model up by id.
+pub fn find(id: &str) -> Option<Model> {
+    ALL.into_iter().find(|m| m.id == id)
+}
 
 /// Where models are kept: `$APERIO_MODELS_DIR` if set, otherwise the
 /// platform's data folder (e.g. `~/.local/share/aperio/models`).

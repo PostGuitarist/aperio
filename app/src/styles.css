@@ -663,3 +663,15 @@ progress {
 .tabs button {
   font-size: 12px;
 }
+
+.segmented[hidden] {
+  display: none;
+}
+
+.optional-model {
+  margin-top: 16px;
+}
+
+.optional-model ul.models {
+  margin-bottom: 4px;
+}

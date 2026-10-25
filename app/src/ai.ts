@@ -66,6 +66,7 @@ export function paramControls(parent: HTMLElement, specs: ParamSpec[], params: (
       syncs.push(() => (box.checked = Boolean(params()[spec.key] ?? spec.default)));
     } else if (spec.kind === "choice") {
       const seg = h("div", { className: "segmented" });
+      seg.dataset.param = spec.key;
       const buttons = spec.options.map((option) => {
         const b = h("button", { type: "button", textContent: option[0].toUpperCase() + option.slice(1) });
         b.addEventListener("click", () => {
@@ -116,7 +117,13 @@ export function pluginLayerControls(parent: HTMLElement, layer: () => Layer): ()
   if (mask?.kind === "plugin") {
     const info = plugins.get(mask.plugin);
     if (info?.mask) {
-      syncs.push(paramControls(parent, info.mask.params, () => ((layer().mask as PluginMask).params ??= {}) as Params));
+      const params = () => ((layer().mask as PluginMask).params ??= {}) as Params;
+      syncs.push(paramControls(parent, info.mask.params, params));
+      if (mask.plugin === SEGMENT) {
+        // Best/Fast only applies to subjects.
+        const detail = parent.querySelector<HTMLElement>('[data-param="detail"]');
+        if (detail) syncs.push(() => (detail.hidden = params().class !== "subject"));
+      }
       const show = h("input", { type: "checkbox" });
       show.addEventListener("change", () => {
         editor.showMask = show.checked;
@@ -162,7 +169,10 @@ function pushLayer(layer: Layer) {
 }
 
 export function addAiLayer(what: "sky" | "subject" | "background") {
-  const params = what === "background" ? { class: "subject", invert: true } : { class: what };
+  const params: Params = what === "background" ? { class: "subject", invert: true } : { class: what };
+  // New subject layers use the fast model when it's downloaded; the layer's
+  // Best/Fast switch changes it.
+  if (params.class === "subject" && statuses.some((m) => m.id === FAST_SUBJECT && m.installed)) params.detail = "fast";
   const name = { sky: "Sky", subject: "Subject", background: "Background" }[what];
   pushLayer({ name, enabled: true, opacity: 1, mask: segmentMask(params), operations: [] });
 }
@@ -201,7 +211,12 @@ interface ModelStatus {
   source: string;
   size_bytes: number;
   installed: boolean;
+  optional: boolean;
+  notice: string | null;
 }
+
+const FAST_SUBJECT = "isnet_general_use";
+let statuses: ModelStatus[] = [];
 
 export function buildAi(root: HTMLElement) {
   const models = group(root, "AI models");
@@ -209,39 +224,47 @@ export function buildAi(root: HTMLElement) {
   const download = h("button", { type: "button", className: "primary" });
   const progress = h("progress", { max: 1, value: 0, hidden: true });
   const note = h("p", { className: "hint muted" }, "Models run on this computer. They're downloaded once, only when you ask, and checked before use.");
-  models.append(list, download, progress, note);
+  const extras = h("div", {});
+  models.append(list, download, progress, note, extras);
 
-  let statuses: ModelStatus[] = [];
   let downloading = false;
   const mb = (b: number) => `${Math.round(b / 1e6)} MB`;
+  const item = (m: ModelStatus) => h("li", {}, h("strong", {}, m.name), h("small", { className: "muted" }, `${m.license} · ${mb(m.size_bytes)} · ${m.installed ? "Downloaded" : "Not downloaded"}`));
   const drawModels = () => {
-    list.replaceChildren(
-      ...statuses.map((m) =>
-        h("li", {}, h("strong", {}, m.name), h("small", { className: "muted" }, `${m.license} · ${mb(m.size_bytes)} · ${m.installed ? "Downloaded" : "Not downloaded"}`)),
-      ),
-    );
-    const missing = statuses.filter((m) => !m.installed);
+    list.replaceChildren(...statuses.filter((m) => !m.optional).map(item));
+    const missing = statuses.filter((m) => !m.optional && !m.installed);
     download.hidden = missing.length === 0;
     download.disabled = downloading;
     download.textContent = downloading ? "Downloading…" : `Download models (${mb(missing.reduce((s, m) => s + m.size_bytes, 0))})`;
+    // Optional models, each with what to know before choosing it.
+    extras.replaceChildren(
+      ...statuses
+        .filter((m) => m.optional)
+        .map((m) => {
+          const get = h("button", { type: "button", textContent: `Download (${mb(m.size_bytes)})`, hidden: m.installed, disabled: downloading });
+          get.addEventListener("click", () => void fetchModels([m]));
+          return h("div", { className: "optional-model" }, h("ul", { className: "models" }, item(m)), m.notice ? h("p", { className: "hint muted" }, m.notice) : "", get);
+        }),
+    );
   };
   const loadStatus = async () => {
     statuses = await invoke<ModelStatus[]>("models_status");
     drawModels();
   };
-  download.addEventListener("click", async () => {
+  // Download `wanted` (the default models when it's all of them).
+  const fetchModels = async (wanted: ModelStatus[], defaults = false) => {
     downloading = true;
     progress.hidden = false;
     drawModels();
     const channel = new Channel<{ model: string; done: number; total: number }>();
-    const missing = statuses.filter((m) => !m.installed);
+    const missing = wanted.filter((m) => !m.installed);
     const total = missing.reduce((s, m) => s + m.size_bytes, 0);
     channel.onmessage = (p) => {
       const before = missing.slice(0, missing.findIndex((m) => m.id === p.model)).reduce((s, m) => s + m.size_bytes, 0);
       progress.value = (before + p.done) / total;
     };
     try {
-      await invoke("download_models", { progress: channel });
+      await invoke("download_models", { ids: defaults ? [] : missing.map((m) => m.id), progress: channel });
     } catch (e) {
       alert(`Download failed: ${e}`);
     } finally {
@@ -250,7 +273,8 @@ export function buildAi(root: HTMLElement) {
       await loadStatus();
       changed();
     }
-  });
+  };
+  download.addEventListener("click", () => void fetchModels(statuses.filter((m) => !m.optional), true));
   void loadStatus();
 
   const select = group(root, "Select with AI");
@@ -264,7 +288,7 @@ export function buildAi(root: HTMLElement) {
     b.addEventListener("click", () => addAiLayer(what));
     row.append(b);
   }
-  select.append(row, h("p", { className: "hint muted" }, "Each adds a layer masked to that part of the photo; adjust it in the Adjust and Curves tabs. The first run on a photo takes a few seconds (subjects longer)."));
+  select.append(row, h("p", { className: "hint muted" }, "Each adds a layer masked to that part of the photo; adjust it in the Adjust and Curves tabs. Aperio starts on these in the background when a photo opens, so they're usually ready by the time you add them."));
 
   const sky = group(root, "Sky replacement");
   const replace = h("button", { type: "button", textContent: "Replace sky…" });

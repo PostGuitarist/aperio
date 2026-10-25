@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && fromJSON('["ubuntu-22.04","macos-latest","windows-latest"]') || fromJSON('["ubuntu-22.04"]') }}
+        os: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && fromJSON('["ubuntu-24.04","macos-latest","windows-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,17 @@ jobs:
           npm run build
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p aperio-plugin-segment --features fast-subject --all-targets -- -D warnings
       - run: cargo test --workspace
         env:
           # Linux runners have no GPU; Mesa's software Vulkan driver stands in.
           APERIO_REQUIRE_GPU: ${{ runner.os == 'Linux' && '1' || '' }}
+
+      # Windows and macOS builds run the AI models once, to check that the GPU
+      # provider (DirectML, Core ML) loads or falls back to the CPU cleanly.
+      # Runners have no usable GPU, so the timings say nothing about speed.
+      - name: AI models smoke test
+        if: runner.os != 'Linux'
+        run: |
+          cargo run --release -p aperio-cli -- models download
+          cargo run --release -p aperio-cli -- models bench

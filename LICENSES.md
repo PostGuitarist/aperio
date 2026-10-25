@@ -26,10 +26,12 @@ This file records every direct dependency and every AI model Aperio ships or dow
 | bytemuck | render | Zlib OR Apache-2.0 OR MIT |
 | pollster | render | Apache-2.0 OR MIT |
 | log | render | MIT OR Apache-2.0 |
-| ort | segment plugin (runs ONNX models) | MIT OR Apache-2.0. Links ONNX Runtime (MIT), downloaded prebuilt at build time and linked statically. |
+| ort | segment plugin (runs ONNX models) | MIT OR Apache-2.0. Links ONNX Runtime (MIT), downloaded prebuilt at build time and linked statically. On Windows it also links DirectML; see below. |
 | ureq | segment plugin (model downloads) | MIT OR Apache-2.0 |
 | sha2 | segment plugin (model checksums) | MIT OR Apache-2.0 |
 | dirs | segment plugin (models folder) | MIT OR Apache-2.0 |
+
+On Windows, ONNX Runtime uses DirectML (Microsoft, proprietary but redistributable under the [Microsoft Software License Terms](https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License)) to run models on the GPU. Windows 10 1903 and later include DirectML as a system component. Development builds copy `DirectML.dll` next to the executable. Whether installers ship it, or rely on the system copy, has to be settled before the first Windows release.
 
 Workspace crates are GPL-3.0-or-later, except the example plugin `aperio-plugin-vignette`, which is MIT OR Apache-2.0 so it can be copied freely as a template for third-party plugins.
 
@@ -53,6 +55,7 @@ Models are not bundled with the app or the repository. They're downloaded once, 
 |---|---|---|---|---|
 | [Sky segmentation (U²-Net)](https://github.com/xiongzhu666/Sky-Segmentation-and-Post-processing) by xiongzhu666 | AI sky mask | MIT (repository LICENSE; the ONNX mirror at [JianyuanWang/skyseg](https://huggingface.co/JianyuanWang/skyseg) restates it) | Not published. Architecture from [U²-Net](https://github.com/xuebinqin/U-2-Net) (Apache-2.0). | Optional download, 176 MB, `skyseg.onnx` at revision `3ba8c6d` |
 | [BiRefNet lite](https://github.com/ZhengPeng7/BiRefNet) by Peng Zheng et al. | AI subject mask | MIT ([model card](https://huggingface.co/ZhengPeng7/BiRefNet_lite)) | Public academic segmentation datasets listed in the BiRefNet README (e.g. DIS5K) | Optional download, 224 MB, ONNX export at [onnx-community/BiRefNet_lite-ONNX](https://huggingface.co/onnx-community/BiRefNet_lite-ONNX) revision `de15b22` |
+| [ISNet general use (DIS)](https://github.com/xuebinqin/DIS) by Xuebin Qin et al. | Faster AI subject mask. **Not offered by default builds**: only with the `fast-subject` Cargo feature, which is off. | None stated. The DIS code is Apache-2.0, but the weights' release doesn't state a license. | [DIS5K](https://github.com/xuebinqin/DIS), whose terms allow non-commercial research and education only | With the feature on, a separate download the user chooses after a notice about these terms (never part of "Download models"), 179 MB, rembg's ONNX export from its [`v0.0.0` release](https://github.com/danielgatis/rembg/releases/tag/v0.0.0), SHA-256 `60920e99…` |
 
 ## Fonts, icons, and other assets
 
