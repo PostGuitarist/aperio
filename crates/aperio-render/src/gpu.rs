@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use aperio_core::{EditDocument, Mask};
 use aperio_plugin::{Host, Image, ImageMut};
+use rayon::prelude::*;
 
 use crate::adjust::{blend, compile, LayerProgram, Program, Skipped};
-use crate::masks::rasterize;
+use crate::masks::MaskCache;
 use crate::{Error, LinearImage, Result};
 
 /// Pixels processed per GPU pass. 4M pixels is 64 MiB of RGBA f32, well under
@@ -21,6 +22,7 @@ const MAX_GROUPS_X: u32 = 65535;
 pub struct Renderer {
     gpu: Option<Gpu>,
     plugins: Option<Arc<Host>>,
+    masks: MaskCache,
 }
 
 /// A layer ready to run, with its mask rasterized at the image's size.
@@ -55,6 +57,7 @@ impl Renderer {
             Ok(gpu) => Self {
                 gpu: Some(gpu),
                 plugins: None,
+                masks: MaskCache::default(),
             },
             Err(e) => {
                 log::warn!("rendering on the CPU: {e}");
@@ -68,6 +71,7 @@ impl Renderer {
         Self {
             gpu: None,
             plugins: None,
+            masks: MaskCache::default(),
         }
     }
 
@@ -87,11 +91,18 @@ impl Renderer {
         Ok(Self {
             gpu: Some(pollster::block_on(Gpu::new())?),
             plugins: None,
+            masks: MaskCache::default(),
         })
     }
 
     pub fn uses_gpu(&self) -> bool {
         self.gpu.is_some()
+    }
+
+    /// Weights for a brush or gradient mask at this size, reusing recent
+    /// work. `None` for plugin masks.
+    pub fn drawn_mask(&self, mask: &Mask, width: u32, height: u32) -> Option<Arc<Vec<f32>>> {
+        self.masks.rasterize(mask, width, height)
     }
 
     /// Render `doc` onto `img`: each layer's adjustments blended over the
@@ -101,13 +112,8 @@ impl Renderer {
     pub fn render(&self, doc: &EditDocument, img: &mut LinearImage) -> Vec<Skipped> {
         let mut program = compile(doc);
         let mut skipped = std::mem::take(&mut program.skipped);
-        // Plugin masks are generated from the photo before any adjustments.
-        let source = program
-            .layers
-            .iter()
-            .any(|l| matches!(l.mask, Some(Mask::Plugin { .. })))
-            .then(|| img.clone());
-
+        // Every mask is made before any layer runs, so plugin masks see the
+        // photo without adjustments.
         let mut layers: Vec<Prepared> = Vec::new();
         for layer in std::mem::take(&mut program.layers) {
             if layer.opacity <= 0.0 || (layer.op_count == 0 && layer.plugin_steps.is_empty()) {
@@ -119,21 +125,18 @@ impl Renderer {
                     plugin,
                     version,
                     params,
-                }) => {
-                    let src = source.as_ref().expect("source kept for plugin masks");
-                    match self.plugin_mask(plugin, version, params, src) {
-                        Ok(m) => Some(m),
-                        Err(reason) => {
-                            skipped.push(Skipped {
-                                layer: layer.index,
-                                op: plugin.clone(),
-                                reason: format!("mask left out: {reason}"),
-                            });
-                            continue;
-                        }
+                }) => match self.plugin_mask(plugin, version, params, img) {
+                    Ok(m) => Some(m),
+                    Err(reason) => {
+                        skipped.push(Skipped {
+                            layer: layer.index,
+                            op: plugin.clone(),
+                            reason: format!("mask left out: {reason}"),
+                        });
+                        continue;
                     }
-                }
-                Some(m) => rasterize(m, img.width, img.height).map(Arc::new),
+                },
+                Some(m) => self.drawn_mask(m, img.width, img.height),
             };
             layers.push((layer, mask));
         }
@@ -230,12 +233,16 @@ impl Renderer {
         if layer.op_count > done {
             self.run_layers(program, &[(segment(done, layer.op_count), None)], &mut out);
         }
-        for (i, (px, new)) in img.pixels.iter_mut().zip(&out).enumerate() {
-            let w = layer.opacity * mask.map_or(1.0, |m| m[i]);
-            if w > 0.0 {
-                *px = blend(*px, *new, w);
-            }
-        }
+        img.pixels
+            .par_iter_mut()
+            .zip(out.par_iter())
+            .enumerate()
+            .for_each(|(i, (px, new))| {
+                let w = layer.opacity * mask.map_or(1.0, |m| m[i]);
+                if w > 0.0 {
+                    *px = blend(*px, *new, w);
+                }
+            });
     }
 
     /// Run layers' per-pixel steps, each blended through its mask.
@@ -247,12 +254,12 @@ impl Renderer {
             Some(gpu) => gpu.run(program, layers, pixels),
             None => {
                 for (layer, mask) in layers {
-                    for (i, px) in pixels.iter_mut().enumerate() {
+                    pixels.par_iter_mut().enumerate().for_each(|(i, px)| {
                         let w = layer.opacity * mask.as_ref().map_or(1.0, |m| m[i]);
                         if w > 0.0 {
                             *px = blend(*px, program.apply_layer(layer, *px), w);
                         }
-                    }
+                    });
                 }
             }
         }

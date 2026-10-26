@@ -28,3 +28,22 @@ aperio-render = { path = "crates/aperio-render" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# `npm run tauri dev` and `cargo test` use the dev profile, which doesn't
+# optimize by default: per-pixel work then runs 10 to 50 times slower and the
+# editor feels broken. Optimize the dependencies and the crates that touch
+# pixels even there; the rest stays quick to rebuild and easy to debug.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.aperio-render]
+opt-level = 3
+
+[profile.dev.package.aperio-plugin-segment]
+opt-level = 3
+
+[profile.dev.package.aperio-plugin-sky]
+opt-level = 3
+
+[profile.dev.package.aperio-plugin-vignette]
+opt-level = 3

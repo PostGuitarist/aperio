@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use aperio_core::{EditDocument, Mask, Operation};
 use aperio_plugin::Image;
-use aperio_render::{compile, masks, LinearImage, Renderer, Skipped};
+use aperio_render::{compile, LinearImage, Renderer, Skipped};
 use serde::Deserialize;
 
 /// How the preview should be drawn.
@@ -78,7 +78,7 @@ fn weights(renderer: &Renderer, mask: &Mask, img: &LinearImage) -> Option<Arc<Ve
                 .mask(plugin, version, params, source)
                 .ok()
         }
-        m => masks::rasterize(m, img.width, img.height).map(Arc::new),
+        m => renderer.drawn_mask(m, img.width, img.height),
     }
 }
 

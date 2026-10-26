@@ -2,8 +2,9 @@ use std::path::Path;
 
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
 use image::{ExtendedColorType, ImageBuffer, ImageEncoder, Rgb};
+use rayon::prelude::*;
 
-use crate::color::linear_to_srgb;
+use crate::color::{linear_to_srgb, linear_to_srgb8};
 use crate::metadata::{Metadata, MetadataPolicy};
 use crate::{Error, LinearImage, Result};
 
@@ -124,9 +125,15 @@ fn write_tiff(
 
 /// The image as 8-bit sRGB, alpha dropped.
 pub fn srgb8(img: &LinearImage) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-    to_rgb8(img, |px, scale| {
-        px.map(|v| (linear_to_srgb(v) * scale).round())
-    })
+    let mut data = vec![0u8; img.pixels.len() * 3];
+    data.par_chunks_mut(3)
+        .zip(img.pixels.par_iter())
+        .for_each(|(out, px)| {
+            for c in 0..3 {
+                out[c] = linear_to_srgb8(px[c]);
+            }
+        });
+    ImageBuffer::from_raw(img.width, img.height, data).expect("buffer matches dimensions")
 }
 
 /// Encode as an in-memory sRGB JPEG, for previews.

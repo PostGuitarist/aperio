@@ -261,6 +261,18 @@ button.active {
   pointer-events: none;
 }
 
+#overlay .wet {
+  fill: none;
+  stroke: rgb(230 40 40 / 0.35);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+#overlay .wet.erase {
+  stroke: rgb(255 255 255 / 0.3);
+}
+
 #overlay .guide.dashed {
   stroke-dasharray: 6 5;
 }
