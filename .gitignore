@@ -2,3 +2,4 @@
 node_modules/
 /app/dist
 /app/src-tauri/gen/schemas
+/app/src-tauri/DirectML.dll

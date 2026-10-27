@@ -157,7 +157,13 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
-            npm run tauri build -- --config src-tauri/release-windows.conf.json
+            # The installer ships the DirectML.dll that ONNX Runtime put in
+            # target/release. Bundling it straight from there fails, because
+            # the build also copies resources into target/release and Windows
+            # won't copy a file onto itself, so it's bundled from a copy.
+            cp ../target/release/DirectML.dll src-tauri/DirectML.dll
+            echo '{"bundle":{"resources":{"DirectML.dll":"DirectML.dll"}}}' > "$RUNNER_TEMP/windows.conf.json"
+            npm run tauri build -- --config "$RUNNER_TEMP/windows.conf.json"
           else
             npm run tauri build
           fi
