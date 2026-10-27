@@ -199,15 +199,19 @@ jobs:
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
           DRAFT: ${{ inputs.draft && 'true' || 'false' }}
         run: |
-          ls -l installers
-          ( cd installers && sha256sum * > SHA256SUMS.txt )
+          # Each platform's artifact keeps its bundle/<format>/ folders, so
+          # gather the files into one flat folder first.
+          mkdir release
+          find installers -type f -exec mv -t release {} +
+          ls -l release
+          ( cd release && sha256sum * > SHA256SUMS.txt )
           if gh release view "$TAG" > /dev/null 2>&1; then
             # Keep its description, which may have been edited by hand.
             echo "A release for $TAG exists; replacing its installers"
-            gh release upload "$TAG" installers/* --clobber
+            gh release upload "$TAG" release/* --clobber
             gh release edit "$TAG" --title "$TITLE" --prerelease="$PRERELEASE" --draft="$DRAFT"
           else
-            gh release create "$TAG" installers/* \
+            gh release create "$TAG" release/* \
               --verify-tag \
               --title "$TITLE" \
               --notes-file docs/release-notes.md \
