@@ -162,6 +162,12 @@ jobs:
             # the build also copies resources into target/release and Windows
             # won't copy a file onto itself, so it's bundled from a copy.
             cp ../target/release/DirectML.dll src-tauri/DirectML.dll
+            # ONNX Runtime's build script also copies DirectML.dll into
+            # target/release. If it runs alongside the app's build script,
+            # which copies the bundled one there, the two collide (os error
+            # 32). Building the app once without the bundle config first
+            # leaves only the app's copy for the installer build.
+            cargo build --release -p aperio-app
             echo '{"bundle":{"resources":{"DirectML.dll":"DirectML.dll"}}}' > "$RUNNER_TEMP/windows.conf.json"
             npm run tauri build -- --config "$RUNNER_TEMP/windows.conf.json"
           else
