@@ -39,7 +39,7 @@ npm run tauri build   # build an installer
 
 Run the Rust tests from the repository root with `cargo test --workspace`.
 
-Pushing a `v*` tag builds the installers on macOS, Windows, and Linux and attaches them to a draft GitHub release, using [docs/release-notes.md](docs/release-notes.md) as its description. Check the draft, then publish it.
+To release, open **Actions → Release → Run workflow** and enter a tag such as `v0.1.0` (it is created on `main` if it doesn't exist), or push a `v*` tag. The workflow builds the installers on macOS, Windows, and Linux and publishes a GitHub release with them attached, titled "Aperio <tag>", using [docs/release-notes.md](docs/release-notes.md) followed by the merged pull requests since the last release as its description. Tags with a suffix, like `v0.1.0-rc1`, become pre-releases. The tag must match the version in `Cargo.toml`, `app/package.json`, and `app/src-tauri/tauri.conf.json`.
 
 To render a photo with its sidecar edits from the command line:
 

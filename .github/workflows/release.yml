@@ -1,0 +1,218 @@
+name: Release
+
+# Builds the macOS, Windows, and Linux installers for a tag and publishes them
+# as a GitHub release. Start it from the Actions tab (Release → Run workflow)
+# with a tag name, or push a v* tag. A tag that doesn't exist yet is created
+# on the chosen branch first. Re-running it for the same tag replaces the
+# release's installers rather than making a second release.
+#
+# This is the only workflow that pays for macOS (10x) and Windows (2x)
+# minutes, so it skips the tests: CI has already run them on main.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, e.g. v0.1.0 or v0.1.0-rc1 (created if it doesn't exist)
+        required: true
+        type: string
+      target:
+        description: Branch or commit to tag, if the tag doesn't exist yet
+        required: false
+        default: main
+        type: string
+      title:
+        description: Release title (default "Aperio <tag>")
+        required: false
+        type: string
+      draft:
+        description: Save as a draft instead of publishing
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  # Checks the tag against the app version and creates the tag if needed, so
+  # the builds all check out the same commit.
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Resolve the tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          TARGET: ${{ inputs.target || 'main' }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$TAG' isn't a version tag like v0.1.0 or v0.1.0-rc1"
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "Using the existing tag $TAG"
+          else
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET" --jq .sha)
+            # A tag made with the workflow's own token doesn't start another
+            # run of this workflow, so this run is the only one.
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$sha" > /dev/null
+            echo "Created $TAG at $sha ($TARGET)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # v0.1.0-rc1 and the like are marked as pre-releases.
+          if [[ "$TAG" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      # The installers are named after the app version, so a v0.2.0 tag on a
+      # commit that still says 0.1.0 would ship misnamed files.
+      - name: Check the app version
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          want="${TAG#v}"
+          want="${want%%-*}"
+          for file in app/src-tauri/tauri.conf.json app/package.json; do
+            have=$(jq -r .version "$file")
+            if [ "$have" != "$want" ]; then
+              echo "::error file=$file::version is $have, but the tag $TAG needs $want"
+              exit 1
+            fi
+          done
+          have=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$have" != "$want" ]; then
+            echo "::error file=Cargo.toml::workspace version is $have, but the tag $TAG needs $want"
+            exit 1
+          fi
+
+  build:
+    name: build (${{ matrix.os }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev libayatana-appindicator3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Build frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      # Runs the AI models once, to check that the GPU provider (DirectML,
+      # Core ML) loads or falls back to the CPU cleanly in the release build.
+      # It also puts DirectML.dll in target/release on Windows, which the
+      # Windows installer ships (see LICENSES.md).
+      - name: AI models smoke test
+        if: runner.os != 'Linux'
+        run: |
+          cargo run --release -p aperio-cli -- models download
+          cargo run --release -p aperio-cli -- models bench
+
+      - name: Build installers
+        working-directory: app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            npm run tauri build -- --config src-tauri/release-windows.conf.json
+          else
+            npm run tauri build
+          fi
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+
+  # Publishes one release with every platform's installers, once all three
+  # builds have passed. The description is docs/release-notes.md followed by
+  # GitHub's list of merged pull requests since the previous release.
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          TITLE: ${{ inputs.title || format('Aperio {0}', needs.prepare.outputs.tag) }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          DRAFT: ${{ inputs.draft && 'true' || 'false' }}
+        run: |
+          ls -l installers
+          ( cd installers && sha256sum * > SHA256SUMS.txt )
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # Keep its description, which may have been edited by hand.
+            echo "A release for $TAG exists; replacing its installers"
+            gh release upload "$TAG" installers/* --clobber
+            gh release edit "$TAG" --title "$TITLE" --prerelease="$PRERELEASE" --draft="$DRAFT"
+          else
+            gh release create "$TAG" installers/* \
+              --verify-tag \
+              --title "$TITLE" \
+              --notes-file docs/release-notes.md \
+              --generate-notes \
+              --prerelease="$PRERELEASE" \
+              --draft="$DRAFT"
+          fi
+          echo "### [$TITLE]($(gh release view "$TAG" --json url --jq .url))" >> "$GITHUB_STEP_SUMMARY"
