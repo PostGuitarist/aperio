@@ -1,13 +1,20 @@
 name: CI
 
-# Pull requests and main run on Linux only. The repo is private, where macOS
-# minutes cost 10x and Windows 2x, so those builds run only for release tags
-# or when started by hand from the Actions tab. Release builds are in
-# release.yml.
+# Pull requests and main run on Linux only; the macOS and Windows builds run
+# when started by hand from the Actions tab, and for releases (release.yml).
+# Changes that only touch docs skip CI, since nothing here checks them.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   workflow_dispatch:
 
 concurrency:
@@ -23,6 +30,7 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -32,6 +40,7 @@ jobs:
 
   licenses:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -45,6 +54,8 @@ jobs:
       matrix:
         os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-24.04","macos-latest","windows-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     runs-on: ${{ matrix.os }}
+    # A normal run takes 5-10 minutes; a hung test shouldn't burn six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
