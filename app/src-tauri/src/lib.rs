@@ -58,6 +58,8 @@ impl Default for Plugins {
             .expect("bundled plugins register");
         host.register(aperio_plugin_sky::SkyReplace::new())
             .expect("bundled plugins register");
+        host.register(aperio_plugin_sky::SkyRelight::new())
+            .expect("bundled plugins register");
         host.register(aperio_plugin_vignette::Vignette)
             .expect("bundled plugins register");
         Self {

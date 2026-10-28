@@ -105,3 +105,13 @@ NAFNet-SIDD was trained on sRGB images, so denoise runs after RAW files are demo
 ## Sky replacement
 
 `org.aperio.sky` ([`plugins/sky`](../plugins/sky/src/lib.rs)) is an operation that paints a sky photo of the user's choice; the layer's mask (normally the AI sky mask) decides where it shows. It uses `apply_masked` to fit the new sky between the top of the frame and the horizon the mask shows, and it leaves out the bottom of the sky photo once its own ground or skyline starts. Along the skyline, where the AI mask is unsure, pixels that look like the old sky are blended in as more sky than the mask says, so haze and gaps between leaves don't show a pale fringe.
+
+### Matching the scene to the new sky
+
+`org.aperio.sky.relight` ([`plugins/sky/src/relight.rs`](../plugins/sky/src/relight.rs)) makes the rest of the photo match the new sky. The sky operation only shows where the sky mask is, so this is a separate operation on a companion layer masked to everything but the sky (the AI sky mask, inverted); the app adds both layers when you replace the sky and keeps their sky photos in step. It compares the old sky (the part of the photo outside its mask) with the new sky photo, then:
+
+- **Match lighting** moves the scene's colour all the way, and its brightness half the way, toward the new sky's light, more in bright areas than in shadows, with each channel's change limited to 3x either way.
+- **Reflections** tints areas below the horizon that look like the old sky (water, wet ground, glass) with the colour of the new sky near its horizon, keeping their texture.
+- **Horizon haze** lays a little of that colour in a soft band around the horizon, so the skyline sits in the new air.
+
+It's colour matching driven by the masks, nothing generative. Lighting that changes direction, such as new shadows, is a later step on the [roadmap](ROADMAP.md).

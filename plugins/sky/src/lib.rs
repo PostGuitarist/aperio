@@ -24,6 +24,10 @@ use aperio_plugin::{
 };
 use serde_json::Value;
 
+mod relight;
+
+pub use relight::SkyRelight;
+
 pub const ID: &str = "org.aperio.sky";
 
 /// A decoded sky photo in linear light.
@@ -38,21 +42,15 @@ struct Sky {
 /// A decoded sky with the file and modification time it came from.
 type CachedSky = (PathBuf, Option<SystemTime>, Arc<Sky>);
 
+/// The last sky photo, so moving a slider doesn't decode it again.
 #[derive(Default)]
-pub struct SkyReplace {
-    /// The last sky photo, so moving a slider doesn't decode it again.
-    cache: Mutex<Option<CachedSky>>,
-}
+struct SkyCache(Mutex<Option<CachedSky>>);
 
-impl SkyReplace {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+impl SkyCache {
     fn load(&self, path: &str) -> Result<Arc<Sky>> {
         let path = PathBuf::from(path);
         let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.0.lock().unwrap();
         if let Some((p, m, sky)) = cache.as_ref() {
             if *p == path && *m == modified {
                 return Ok(sky.clone());
@@ -80,6 +78,17 @@ impl SkyReplace {
         });
         *cache = Some((path, modified, sky.clone()));
         Ok(sky)
+    }
+}
+
+#[derive(Default)]
+pub struct SkyReplace {
+    cache: SkyCache,
+}
+
+impl SkyReplace {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -141,7 +150,7 @@ impl Plugin for SkyReplace {
         let Some(path) = image_param().read_path(params)? else {
             return Ok(());
         };
-        let sky = self.load(&path)?;
+        let sky = self.cache.load(&path)?;
         let zoom = zoom().read_number(params)? as f32;
         let (sx, sy) = (
             shift_x().read_number(params)? as f32,
