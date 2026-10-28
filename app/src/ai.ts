@@ -24,11 +24,13 @@ export interface PluginInfo {
   license: string;
   operation: { label: string; params: ParamSpec[] } | null;
   mask: { label: string; params: ParamSpec[] } | null;
+  source: { label: string; params: ParamSpec[] } | null;
   models: { name: string; license: string; source: string }[];
 }
 
 export const SEGMENT = "org.aperio.segment";
 export const SKY = "org.aperio.sky";
+export const RELIGHT = "org.aperio.sky.relight";
 
 export const plugins = new Map<string, PluginInfo>();
 
@@ -87,7 +89,9 @@ export function paramControls(parent: HTMLElement, specs: ParamSpec[], params: (
       choose.addEventListener("click", async () => {
         const path = await pickImage(spec.label);
         if (path) {
+          const before = params()[spec.key];
           params()[spec.key] = path;
+          if (typeof before === "string") followSky(before, path);
           commit();
         }
       });
@@ -181,6 +185,20 @@ export async function replaceSky() {
   const path = await pickImage("Choose a sky photo");
   if (!path) return;
   const version = plugins.get(SKY)?.version ?? "0.1.0";
+  // The rest of the scene is relit to match on a layer of its own, masked
+  // to everything but the sky, since the sky layer only shows in the sky.
+  const relight = plugins.get(RELIGHT);
+  if (relight) {
+    const params: Params = { image: path };
+    for (const p of relight.operation?.params ?? []) if (p.kind === "number") params[p.key] = p.default;
+    editor.doc.layers.push({
+      name: "Match scene to sky",
+      enabled: true,
+      opacity: 1,
+      mask: segmentMask({ class: "sky", invert: true }),
+      operations: [{ op: "plugin", plugin: RELIGHT, version: relight.version, params }],
+    });
+  }
   pushLayer({
     name: "New sky",
     enabled: true,
@@ -191,6 +209,18 @@ export async function replaceSky() {
   // The new sky shows better without the red overlay.
   editor.showMask = false;
   changed();
+}
+
+/** When a sky layer's photo changes from `before` to `after`, relighting
+ * steps that were matching `before` follow it. */
+function followSky(before: string, after: string) {
+  for (const layer of editor.doc.layers) {
+    for (const op of layer.operations) {
+      if (op.op === "plugin" && op.plugin === RELIGHT && (op.params as Params | undefined)?.image === before) {
+        (op.params as Params).image = after;
+      }
+    }
+  }
 }
 
 /** Add a plugin effect (e.g. the example vignette) to the selected layer. */
@@ -300,7 +330,7 @@ export function buildAi(root: HTMLElement) {
   effects.append(effectRow, h("p", { className: "hint muted" }, "Added to the selected layer."));
 
   return () => {
-    const ops = [...plugins.values()].filter((p) => p.operation && p.id !== SKY);
+    const ops = [...plugins.values()].filter((p) => p.operation && p.id !== SKY && p.id !== RELIGHT);
     if (effectRow.childElementCount !== ops.length) {
       effectRow.replaceChildren(
         ...ops.map((p) => {
