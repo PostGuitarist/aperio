@@ -1,0 +1,60 @@
+# Builds the ONNX model files Aperio downloads that nobody else publishes,
+# and attaches them to a "models-N" pre-release of this repository. Run it by
+# hand (Actions -> Models -> Run workflow) when a model is added or changed.
+#
+# Each export is reproducible: the inputs are pinned by checksum, the tools
+# by version, and the output must match the SHA-256 the app expects, or
+# nothing is published.
+name: Models
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release tag to attach the models to
+        required: true
+        default: models-1
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  nafnet:
+    runs-on: ubuntu-24.04
+    env:
+      # The authors' NAFNet-SIDD-width32 checkpoint, as mirrored on Hugging Face.
+      CHECKPOINT_URL: https://huggingface.co/nyanko7/nafnet-models/resolve/08e8c701eb662688cccda3bf3074e90e902bcd3b/NAFNet-SIDD-width32.pth
+      CHECKPOINT_SHA256: 89c70e808d1783b6c07911306e106aaf0d4f7f3da8c61078b99ff7f8929a26f4
+      # Must match MODEL in plugins/denoise/src/lib.rs.
+      OUTPUT: nafnet_sidd_width32.onnx
+      OUTPUT_SHA256: 2cdac0e97b13bf3527f64e94d6935a8c84d3c69cb4d0e6512d8df47902b5acf1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the exporter's dependencies
+        run: |
+          pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install onnx==1.23.2 onnxscript==0.7.2 numpy==2.5.4
+      - name: Download and check the checkpoint
+        run: |
+          curl -sSfL -o checkpoint.pth "$CHECKPOINT_URL"
+          echo "$CHECKPOINT_SHA256  checkpoint.pth" | sha256sum -c
+      - name: Export to ONNX and check the result
+        run: |
+          python tools/export-nafnet.py checkpoint.pth "$OUTPUT"
+          sha256sum "$OUTPUT"
+          echo "$OUTPUT_SHA256  $OUTPUT" | sha256sum -c
+      - name: Attach to the models release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          if ! gh release view "$RELEASE" >/dev/null 2>&1; then
+            gh release create "$RELEASE" --prerelease --target "$GITHUB_SHA" \
+              --title "AI models ($RELEASE)" \
+              --notes "Model files the Aperio app downloads when you ask it to. They're not installers. Each file's license and source is listed in LICENSES.md."
+          fi
+          gh release upload "$RELEASE" "$OUTPUT" --clobber

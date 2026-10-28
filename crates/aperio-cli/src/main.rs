@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use aperio_ai::ModelFile;
 use aperio_core::{sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, Progress};
 use aperio_plugin_segment::models;
@@ -22,11 +23,22 @@ fn plugins() -> Host {
             .with_disk_cache(aperio_plugin_segment::disk::default_dir()),
     )
     .expect("bundled plugins register");
+    host.register(aperio_plugin_denoise::Denoise::new(models::default_dir()))
+        .expect("bundled plugins register");
     host.register(aperio_plugin_sky::SkyReplace::new())
         .expect("bundled plugins register");
     host.register(aperio_plugin_vignette::Vignette)
         .expect("bundled plugins register");
     host
+}
+
+/// Every model the bundled plugins can use.
+fn all_models() -> Vec<ModelFile> {
+    models::ALL
+        .iter()
+        .map(|m| m.file)
+        .chain(aperio_plugin_denoise::MODELS)
+        .collect()
 }
 
 /// What `aperio models` should download.
@@ -42,13 +54,13 @@ enum Download<'a> {
 /// fetch the missing default ones, or the one named.
 fn models_command(download: Download) -> Result<(), Box<dyn std::error::Error>> {
     if let Download::Model(id) = download {
-        if models::find(id).is_none() {
+        if !all_models().iter().any(|m| m.id == id) {
             return Err(format!("no model called {id}; run `aperio models` for the list").into());
         }
     }
     let dir = models::default_dir();
     println!("models folder: {}", dir.display());
-    for m in models::ALL {
+    for m in all_models() {
         let installed = m.is_installed(&dir);
         println!(
             "  {:<40} {:>4} MB  {}  {}{}",
@@ -128,7 +140,7 @@ fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
     println!("{}x{} preview", img.width, img.height);
     let mut masks = vec![("sky", "best"), ("subject", "best")];
     if models::ALL.contains(&models::FAST_SUBJECT)
-        && models::FAST_SUBJECT.is_installed(segment.models_dir())
+        && models::FAST_SUBJECT.file.is_installed(segment.models_dir())
     {
         masks.push(("subject", "fast"));
     }
@@ -150,6 +162,39 @@ fn bench_command(photo: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
     }
     for (model, device) in segment.devices() {
         println!("  {model} ran on {device}");
+    }
+
+    // Denoise runs on the full-size photo; time a 1024 px square of the
+    // preview and scale that to a megapixel count.
+    let denoise = aperio_plugin_denoise::Denoise::new(models::default_dir());
+    if aperio_plugin_denoise::MODEL.is_installed(denoise.models_dir()) {
+        let side = img.width.min(img.height).min(1024);
+        let mut crop: Vec<[f32; 4]> = (0..side * side)
+            .map(|i| img.pixels[((i / side) * img.width + i % side) as usize])
+            .collect();
+        for run in ["first run", "second run"] {
+            // A different photo each run, so the network output isn't reused.
+            crop[0][0] += 0.01;
+            let started = std::time::Instant::now();
+            denoise.source(
+                &serde_json::json!({}),
+                aperio_plugin::ImageMut {
+                    width: side,
+                    height: side,
+                    pixels: &mut crop,
+                },
+                Progress::none(),
+            )?;
+            let secs = started.elapsed().as_secs_f64();
+            let per_mp = secs / (side * side) as f64 * 1e6;
+            println!(
+                "  denoise {side}x{side} {run:<10} {:>6} ms ({per_mp:.1} s per megapixel)",
+                (secs * 1000.0) as u64
+            );
+        }
+        if let Some(device) = denoise.runs_on() {
+            println!("  {} ran on {device}", aperio_plugin_denoise::MODEL.name);
+        }
     }
     Ok(())
 }

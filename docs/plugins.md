@@ -70,14 +70,14 @@ Models are kept in the platform's data folder (for example `~/.local/share/aperi
 
 ```sh
 aperio models            # what's installed
-aperio models download   # fetch and verify missing models (~400 MB)
+aperio models download   # fetch and verify missing models (~520 MB)
 ```
 
 A layer whose model isn't downloaded is reported as skipped. It stays in the sidecar.
 
 When a photo is opened and the models are downloaded, the app starts them on its preview in the background (quickest first), so AI masks are usually ready by the time they're added: a mask whose model has already run takes well under a second. The plugin keeps the networks' last few outputs, so a subject mask and its inverse (the background) share one run.
 
-The models run on the GPU where ONNX Runtime has a provider for it: DirectML on Windows and Core ML on macOS (the GPU and Neural Engine). If the GPU can't take a model, it runs on the CPU instead, and a model Core ML can't convert is remembered in a `<model>.coreml.unsupported` file next to it, because Core ML can spend a minute trying before it gives up. Delete the file to try again, for example after an update. For now Core ML takes the sky model but not BiRefNet, so subject masks run on the CPU on macOS. Linux runs on the CPU for now. Set `APERIO_AI_CPU=1` to skip the GPU, for example to compare results or work around a driver problem. To see where the models run and how long a mask takes:
+The models (for this plugin and for denoise) run on the GPU where ONNX Runtime has a provider for it: DirectML on Windows and Core ML on macOS (the GPU and Neural Engine). If the GPU can't take a model, it runs on the CPU instead, and a model Core ML can't convert is remembered in a `<model>.coreml.unsupported` file next to it, because Core ML can spend a minute trying before it gives up. Delete the file to try again, for example after an update. For now Core ML takes the sky model but not BiRefNet, so subject masks run on the CPU on macOS. Linux runs on the CPU for now. Set `APERIO_AI_CPU=1` to skip the GPU, for example to compare results or work around a driver problem. To see where the models run and how long a mask takes:
 
 ```sh
 aperio models bench photo.jpg
@@ -91,6 +91,16 @@ ISNet comes from the segment plugin's `fast-subject` Cargo feature. The app and 
 cargo run -p aperio-cli --no-default-features -- models
 cd app && npm run tauri build -- -- --no-default-features
 ```
+
+## AI denoise
+
+`org.aperio.denoise` ([`plugins/denoise`](../plugins/denoise/src/lib.rs)) is a source step: it runs once on the full-size photo, before any layer. The network is [NAFNet](https://github.com/megvii-research/NAFNet) trained on [SIDD](https://www.eecs.yorku.ca/~kamel/sidd/), real noise from smartphone photos at many ISO settings; its code, weights, and training data are all MIT. Nobody published an ONNX export of it, so Aperio makes one with [`tools/export-nafnet.py`](../tools/export-nafnet.py) in the Models workflow and publishes it as a release asset.
+
+The network sees the photo in 512 px tiles that overlap by 32 px and are feathered together, so memory stays bounded at any size and no seams show. It sees sRGB values from 0 to 1, so highlights above 1 (from RAW files) keep their brightness: what the network changes is added to the photo rather than replacing it. Two sliders mix its output with the photo: **Amount**, and **Keep detail**, which brings back fine brightness detail and grain without the colour noise. The plugin keeps the network's output for the last photo, so the sliders don't run it again.
+
+A 512 px tile takes about 2 seconds on a 4-core CPU, so a 24-megapixel photo takes a few minutes there, and much less on a GPU. `aperio models bench` times it on your machine.
+
+NAFNet-SIDD was trained on sRGB images, so denoise runs after RAW files are demosaiced. Denoising RAW data before demosaicing could do better and needs a model trained on raw sensor data; that's left for later.
 
 ## Sky replacement
 

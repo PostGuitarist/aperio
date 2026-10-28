@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use aperio_ai::ModelFile;
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
 use aperio_plugin::{Host, PluginInfo, Progress};
 use aperio_plugin_segment::models;
@@ -52,6 +53,8 @@ impl Default for Plugins {
         );
         let mut host = Host::new();
         host.register(segment.clone())
+            .expect("bundled plugins register");
+        host.register(aperio_plugin_denoise::Denoise::new(models::default_dir()))
             .expect("bundled plugins register");
         host.register(aperio_plugin_sky::SkyReplace::new())
             .expect("bundled plugins register");
@@ -508,11 +511,20 @@ struct ModelStatus {
     notice: Option<&'static str>,
 }
 
+/// Every model the bundled plugins can use.
+fn all_models() -> Vec<ModelFile> {
+    models::ALL
+        .iter()
+        .map(|m| m.file)
+        .chain(aperio_plugin_denoise::MODELS)
+        .collect()
+}
+
 /// The AI models and whether each is downloaded.
 #[tauri::command]
 fn models_status() -> Vec<ModelStatus> {
     let dir = models::default_dir();
-    models::ALL
+    all_models()
         .iter()
         .map(|m| ModelStatus {
             id: m.id,
@@ -541,14 +553,14 @@ struct DownloadProgress {
 async fn download_models(ids: Vec<String>, progress: Channel<DownloadProgress>) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let dir = models::default_dir();
-        let wanted = |m: &models::Model| {
+        let wanted = |m: &ModelFile| {
             if ids.is_empty() {
                 !m.optional
             } else {
                 ids.iter().any(|id| id == m.id)
             }
         };
-        for m in models::ALL
+        for m in all_models()
             .iter()
             .filter(|m| wanted(m) && !m.is_installed(&dir))
         {

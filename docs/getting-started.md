@@ -48,7 +48,7 @@ Drag the handles on the photo to place the mask. While a layer is selected, the 
 
 ## 5. Let AI find the sky or subject
 
-Open the **AI** tab (A). The first time, click **Download models**. That's about 400 MB, downloaded once and checked before use. The models run on your computer, and your photos never leave it.
+Open the **AI** tab (A). The first time, click **Download models**. That's about 520 MB, downloaded once and checked before use. The models run on your computer, and your photos never leave it.
 
 Then click **+ Sky**, **+ Subject**, or **+ Background**. Each adds a layer masked to that part of the photo. Aperio starts working out these masks in the background as soon as a photo opens, so they're usually ready when you click. Tick **Show mask overlay** in the Layers tab to see exactly what's selected, and **Invert** to flip it.
 

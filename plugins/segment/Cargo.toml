@@ -14,21 +14,10 @@ publish = false
 fast-subject = []
 
 [dependencies]
+aperio-ai.workspace = true
 aperio-plugin.workspace = true
 dirs = "6"
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
 serde_json.workspace = true
-sha2 = "0.10"
-ureq = "3"
 
 [dev-dependencies]
 aperio-render.workspace = true
-
-# GPU acceleration: each platform gets the ONNX Runtime build with its GPU
-# execution provider (the prebuilt binaries ort downloads come per target).
-[target.'cfg(windows)'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
-

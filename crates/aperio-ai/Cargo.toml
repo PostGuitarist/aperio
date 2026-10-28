@@ -1,0 +1,23 @@
+[package]
+name = "aperio-ai"
+description = "Model downloads and ONNX Runtime sessions shared by Aperio's AI plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+dirs = "6"
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
+sha2 = "0.10"
+ureq = "3"
+
+# GPU acceleration: each platform gets the ONNX Runtime build with its GPU
+# execution provider (the prebuilt binaries ort downloads come per target).
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
