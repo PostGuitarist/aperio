@@ -6,7 +6,7 @@ This is the plan for v0.1. It records decisions that are expensive to change lat
 
 - **Non-destructive.** Originals are read-only. Every edit is data in a sidecar ([format](sidecar-format.md)).
 - **Local-first.** All processing on the user's machine. No account, no telemetry, and no network calls except downloading an AI model when the user asks for it.
-- **Cross-platform.** Windows, macOS, and Linux from one codebase. CI checks Linux on every PR; macOS and Windows builds run for release tags or on demand to save Actions minutes.
+- **Cross-platform.** Windows, macOS, and Linux from one codebase. CI checks Linux on every PR; macOS and Windows builds run for releases or on demand.
 - **Modular AI.** AI features are plugins with swappable models.
 
 ## Stack
