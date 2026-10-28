@@ -30,6 +30,8 @@ Ctrl/⌘+1 switches to the Library and Ctrl/⌘+2 to the editor.
 
 The **Adjust** tab has exposure, contrast, highlights, shadows, whites, blacks, white balance (temperature and tint), vibrance, and saturation. **Curves** edits the tone curve for RGB together, for luminance only, or for red, green, and blue separately. **Crop** (C) crops and straightens.
 
+**Noise** removes the grain from high-ISO photos, such as shots taken indoors or at night. Tick **AI denoise** (it needs the AI models, see step 5), then set **Amount** and **Keep detail**. Denoise runs once on the full-size photo in the background, which can take a few minutes on a laptop; the status bar shows its progress, and you can keep editing while it works. After that, moving its sliders is quick.
+
 Press **\\** or click **Before / after** to compare with the original. Undo and redo are Ctrl/⌘+Z and Ctrl/⌘+Shift+Z.
 
 Every change is saved as you go, to a small text file next to the photo (`photo.jpg.aperio.json`). Your original file is never changed. Copy the photo and its sidecar together and the edit goes with them. The format is documented in [sidecar-format.md](sidecar-format.md).
@@ -48,7 +50,7 @@ Drag the handles on the photo to place the mask. While a layer is selected, the 
 
 ## 5. Let AI find the sky or subject
 
-Open the **AI** tab (A). The first time, click **Download models**. That's about 520 MB, downloaded once and checked before use. The models run on your computer, and your photos never leave it.
+Open the **AI** tab (A). The first time, click **Download models**. That's about 520 MB, including the denoise model, downloaded once and checked before use. The models run on your computer, and your photos never leave it.
 
 Then click **+ Sky**, **+ Subject**, or **+ Background**. Each adds a layer masked to that part of the photo. Aperio starts working out these masks in the background as soon as a photo opens, so they're usually ready when you click. Tick **Show mask overlay** in the Layers tab to see exactly what's selected, and **Invert** to flip it.
 
@@ -56,7 +58,9 @@ Then click **+ Sky**, **+ Subject**, or **+ Background**. Each adds a layer mask
 
 ## 6. Replace the sky
 
-In the AI tab, click **Replace sky…** and choose a photo of a sky. Aperio puts it behind the AI sky mask and fits it above the horizon. You can change its position, zoom, and exposure in the layer's settings. For a natural match, warm or cool the rest of the photo afterwards on the Base layer.
+In the AI tab, click **Replace sky…** and choose a photo of a sky. Aperio puts it behind the AI sky mask and fits it above the horizon. You can change its position, zoom, and exposure in the layer's settings.
+
+Aperio also adds a **Match scene to sky** layer that shifts the rest of the photo's colour and light toward the new sky, tints water and reflections with it, and softens the horizon with a little of its haze. Its **Match lighting**, **Reflections**, and **Horizon haze** sliders control each part; set them to zero, or turn the layer off, to keep the original light.
 
 ## 7. Export
 
@@ -78,7 +82,7 @@ The `aperio` tool renders a photo with its sidecar edits, and manages the AI mod
 aperio render photo.CR2 photo.jpg   # export with the edits in photo.CR2.aperio.json
 aperio models                       # which AI models are downloaded
 aperio models download              # download the standard models
-aperio models bench photo.jpg       # time the AI masks and show where they ran
+aperio models bench photo.jpg       # time the AI masks and denoise, and show where they ran
 ```
 
 ## Troubleshooting
@@ -86,6 +90,7 @@ aperio models bench photo.jpg       # time the AI masks and show where they ran
 - **AI buttons do nothing, or a layer says it was skipped:** the models aren't downloaded yet. Open the AI tab and click **Download models**.
 - **A HEIC photo won't open:** install your system's HEIC support (see step 2).
 - **AI masks are slow:** on macOS, sky masks run on the GPU, but subject masks run on the CPU. Linux runs both on the CPU. Try the optional fast subject model, or open the photo and give the background work a few seconds before you add the mask.
+- **Denoise is slow:** it runs on every pixel of the full-size photo, so a 24-megapixel photo takes a few minutes on a laptop CPU, less on a GPU. It only runs again when the photo changes, not when you move its sliders.
 - **Something looks wrong on screen:** set `APERIO_AI_CPU=1` to rule out the GPU for AI masks, and [open an issue](https://github.com/PostGuitarist/aperio/issues) with the photo type and your system.
 
 To add your own effects or masks, see [Writing a plugin](plugins.md).

@@ -6,7 +6,7 @@ The API lives in [`crates/aperio-plugin`](../crates/aperio-plugin/src/lib.rs). [
 
 ## How plugins are loaded
 
-For v0.1, a plugin is a Rust crate compiled into the app. The app and the `aperio` command line tool each register their bundled plugins with a `Host` at startup. Loading plugins from outside the build (dynamic libraries or WebAssembly) will come once this API has settled. `API_VERSION` is bumped whenever the trait changes in a way that breaks existing plugins. Version 2 (Aperio 0.2) added source steps, so plugins written for version 1 need a `source: None` line in their `PluginInfo`.
+For now, a plugin is a Rust crate compiled into the app. The app and the `aperio` command line tool each register their bundled plugins with a `Host` at startup. Loading plugins from outside the build (dynamic libraries or WebAssembly) will come once this API has settled. `API_VERSION` is bumped whenever the trait changes in a way that breaks existing plugins. Version 2 (Aperio 0.2) added source steps, so plugins written for version 1 need a `source: None` line in their `PluginInfo`.
 
 To bundle a plugin, add the crate to the workspace and register it in `plugins()` in `crates/aperio-cli/src/main.rs` and `app/src-tauri/src/lib.rs`.
 

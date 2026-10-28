@@ -2,7 +2,7 @@
 
 A free, open-source photo editor with AI-assisted tools that runs entirely on your own machine. No subscription, no account, no cloud, no proprietary formats.
 
-> **Status:** v0.1, an early preview.
+> **Status:** v0.2, an early preview.
 
 ![Aperio's editor with a replaced sky](docs/images/editor-sky.jpg)
 
@@ -12,11 +12,12 @@ A free, open-source photo editor with AI-assisted tools that runs entirely on yo
 - **Library** that reads your folders in place: no import, no catalog.
 - **Adjusts** exposure, contrast, highlights, shadows, whites, blacks, white balance, vibrance, saturation, and tone curves; crops and straightens.
 - **Layers and masks:** brush, gradient, and radial masks, each layer with its own adjustments.
-- **AI masks for sky, subject, and background**, computed on your machine by open models, and **sky replacement**.
+- **AI masks for sky, subject, and background**, computed on your machine by open models, and **sky replacement** that relights the scene to match.
+- **AI denoise** for high-ISO photos, run locally on the full-size image.
 - **Exports** JPEG, PNG, or 16-bit TIFF, with resizing, output sharpening, and metadata you choose.
 - **Plugins:** the AI tools are plugins, and you can write your own ([docs/plugins.md](docs/plugins.md)).
 
-**New here?** Download an installer from [Releases](https://github.com/PostGuitarist/aperio/releases), then follow [Getting started](docs/getting-started.md). The [release notes](docs/release-notes.md) list what's in v0.1 and its known limitations.
+**New here?** Download an installer from [Releases](https://github.com/PostGuitarist/aperio/releases), then follow [Getting started](docs/getting-started.md). The [release notes](docs/release-notes.md) list what's in v0.2 and its known limitations.
 
 ## Principles
 

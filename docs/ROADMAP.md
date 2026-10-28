@@ -1,10 +1,10 @@
 # Roadmap
 
-This is the plan after v0.1.0. It lists what comes next and in what order, not when: Aperio is built by one maintainer, and each release ships when it's ready. The order can change as people use the app and report what they need most. Suggestions and bug reports are welcome on [Issues](https://github.com/PostGuitarist/aperio/issues).
+This is the plan after v0.2.0. It lists what comes next and in what order, not when: Aperio is built by one maintainer, and each release ships when it's ready. The order can change as people use the app and report what they need most. Suggestions and bug reports are welcome on [Issues](https://github.com/PostGuitarist/aperio/issues).
 
-## Where v0.1 stands
+## Where things stand
 
-v0.1 covers the core workflow end to end: open RAW, JPEG, PNG, TIFF, and HEIC; adjust tone, color, and curves; crop; build layers with brush, gradient, radial, and AI sky or subject masks; replace the sky; and export to JPEG, PNG, or 16-bit TIFF. Edits live in a JSON sidecar, and the AI tools are plugins built on the same API anyone can use. See the [release notes](release-notes.md) for details and known limitations.
+v0.1 covered the core workflow end to end: open RAW, JPEG, PNG, TIFF, and HEIC; adjust tone, color, and curves; crop; build layers with brush, gradient, radial, and AI sky or subject masks; replace the sky; and export to JPEG, PNG, or 16-bit TIFF. Edits live in a JSON sidecar, and the AI tools are plugins built on the same API anyone can use. v0.2 added AI denoise, run on the full-size photo in the background, and sky replacement that relights the rest of the scene to match. See the [release notes](release-notes.md) for details and known limitations.
 
 ## Ground rules for every release
 
@@ -17,7 +17,7 @@ These come from the project's goals and apply to every item below.
 - **Audited licenses.** Every new dependency and model goes into [LICENSES.md](../LICENSES.md) in the same PR, following its rules. Models with unclear or non-commercial terms are never bundled; at most they're an opt-in download with a notice, as ISNet is today.
 - **Three platforms.** Each release works on Windows, macOS, and Linux.
 
-## 0.1.x: patches
+## 0.2.x: patches
 
 Fixes for whatever the first users run into, with nothing new in the edit format.
 
@@ -25,11 +25,8 @@ Fixes for whatever the first users run into, with nothing new in the edit format
 - Subject masks on the GPU on macOS. Core ML can't convert BiRefNet yet, so they run on the CPU; options include a Core ML-friendly export of the model or another execution provider.
 - GPU inference on Linux, where ONNX Runtime has a provider for the user's hardware.
 - Replacing ISNet with a comparably fast subject model whose weights and training data are clearly licensed, as soon as one is available.
-
-## 0.2: AI editing
-
-- **AI denoise.** A denoise plugin for high-ISO photos, run locally on the full-resolution image (tiled, so memory stays bounded), with a strength control. RAW files may get the most from denoising before demosaicing, so where it plugs into the pipeline is part of the work. The model needs clearly licensed weights and training data.
-- **Sky replacement with relighting.** When the sky changes, the rest of the scene should match it: shift the foreground's color and brightness toward the new sky, add a matching tint to water and reflections, and blend the horizon more naturally. This builds on the existing sky plugin and AI masks, starting with non-generative color matching driven by the masks.
+- Denoise speed: measure it on macOS and Windows GPUs, and tune the tile size.
+- RAW denoise before demosaicing, if a clearly licensed model trained on raw sensor data becomes available.
 
 ## 0.3: portraits
 

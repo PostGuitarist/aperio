@@ -85,7 +85,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "aperio-ai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs 6.0.0",
  "ort",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aperio-ai",
  "aperio-core",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aperio-ai",
  "aperio-core",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-plugin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "aperio-render"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aperio-core",
  "aperio-plugin",
