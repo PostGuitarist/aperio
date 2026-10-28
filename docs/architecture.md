@@ -29,8 +29,10 @@ crates/
   aperio-render/   decode, wgpu adjustment pipeline (with a CPU fallback), export
   aperio-cli/      `aperio render <in> <out>`: headless render using the sidecar
   aperio-plugin/   plugin API and host (no renderer dependency)
+  aperio-ai/       model downloads and ONNX Runtime sessions shared by AI plugins
 plugins/
   segment/         AI sky and subject masks (ONNX Runtime)
+  denoise/         AI denoise, a source step on the full-size photo
   sky/             sky replacement
   vignette/        example third-party plugin
 app/

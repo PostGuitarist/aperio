@@ -25,15 +25,15 @@ pub mod models;
 mod refine;
 
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use aperio_ai::ort;
 use aperio_plugin::{
     Image, ModelInfo, ParamSpec, Plugin, PluginError, PluginInfo, Provides, Result, API_VERSION,
 };
 use disk::DiskCache;
 use models::Model;
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 use serde_json::Value;
@@ -108,7 +108,8 @@ impl Segment {
     /// photo is opened.
     pub fn prepare(&self, source: Image<'_>, keep_going: impl Fn() -> bool) {
         for model in [models::SKY, models::FAST_SUBJECT, models::SUBJECT] {
-            if !keep_going() || !models::ALL.contains(&model) || !model.is_installed(&self.dir) {
+            if !keep_going() || !models::ALL.contains(&model) || !model.file.is_installed(&self.dir)
+            {
                 continue;
             }
             let _ = self.infer(model, source);
@@ -144,11 +145,11 @@ impl Segment {
             self.remember(key, out.clone());
             return Ok(out);
         }
-        let path = model.path(&self.dir);
-        if !model.is_installed(&self.dir) {
+        let path = model.file.path(&self.dir);
+        if !model.file.is_installed(&self.dir) {
             return Err(PluginError::ModelUnavailable(format!(
                 "{} isn't downloaded yet (expected at {})",
-                model.name,
+                model.file.name,
                 path.display()
             )));
         }
@@ -174,20 +175,23 @@ impl Segment {
         if let Some(out) = cached() {
             return Ok(out);
         }
-        if !sessions.contains_key(model.id) {
-            sessions.insert(model.id, load(&path)?);
+        if !sessions.contains_key(model.file.id) {
+            sessions.insert(
+                model.file.id,
+                aperio_ai::load(&path).map_err(PluginError::ModelUnavailable)?,
+            );
         }
-        let (session, _) = sessions.get_mut(model.id).unwrap();
+        let (session, _) = sessions.get_mut(model.file.id).unwrap();
         let outputs = session
             .run(ort::inputs![tensor])
-            .map_err(|e| PluginError::Failed(format!("{} failed: {e}", model.name)))?;
+            .map_err(|e| PluginError::Failed(format!("{} failed: {e}", model.file.name)))?;
         let (_, data) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(|e| PluginError::Failed(e.to_string()))?;
         if data.len() < plane {
             return Err(PluginError::Failed(format!(
                 "{} returned too little data",
-                model.name
+                model.file.name
             )));
         }
         let out: Arc<Vec<f32>> = Arc::new(
@@ -229,7 +233,7 @@ fn fingerprint(model: Model, source: Image<'_>) -> u64 {
     // 11 million of them, about 15 ms).
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut add = |word: u32| h = (h ^ word as u64).wrapping_mul(0x0100_0000_01b3);
-    for b in model.sha256.bytes() {
+    for b in model.file.sha256.bytes() {
         add(b as u32);
     }
     add(source.width);
@@ -240,101 +244,6 @@ fn fingerprint(model: Model, source: Image<'_>) -> u64 {
         }
     }
     h
-}
-
-/// Load a model, on the GPU if one of this platform's GPU execution
-/// providers can take it, otherwise on the CPU. Returns the session and
-/// where it runs.
-fn load(path: &Path) -> Result<(Session, &'static str)> {
-    let gpus = gpu_providers(path)
-        .into_iter()
-        .map(|(name, remember, provider)| (name, remember, Some(provider)));
-    first_that_loads(path, gpus.chain([("CPU", None, None)]), build).map_err(|e| {
-        PluginError::ModelUnavailable(format!("couldn't load {}: {e}", path.display()))
-    })
-}
-
-/// Try `candidates` (name, tag to remember a failure by, provider) in order
-/// and return the first session `build` makes. Compiling a model for Core ML
-/// can take a minute before it fails (it can't convert every network), so
-/// for a provider with a tag a failure is remembered in a file next to the
-/// model and the provider is skipped from then on. Delete
-/// `<model>.<tag>.unsupported` to try it again. Failures that are quick and
-/// may not last, such as no GPU being found, aren't remembered.
-fn first_that_loads<P, S>(
-    path: &Path,
-    candidates: impl IntoIterator<Item = (&'static str, Option<&'static str>, Option<P>)>,
-    build: impl Fn(&Path, Option<P>) -> std::result::Result<S, ort::Error>,
-) -> std::result::Result<(S, &'static str), ort::Error> {
-    let mut last = None;
-    for (name, tag, provider) in candidates {
-        let marker = tag.map(|tag| path.with_extension(format!("{tag}.unsupported")));
-        if marker.as_ref().is_some_and(|m| m.exists()) {
-            continue;
-        }
-        let is_gpu = provider.is_some();
-        match build(path, provider) {
-            Ok(session) => return Ok((session, name)),
-            Err(e) if is_gpu => {
-                eprintln!("aperio: {name} can't run {}: {e}", path.display());
-                if let Some(marker) = marker {
-                    let _ = std::fs::write(marker, e.to_string());
-                }
-            }
-            Err(e) => last = Some(e),
-        }
-    }
-    Err(last.unwrap_or_else(|| ort::Error::new("no way to run the model")))
-}
-
-type GpuProvider = (
-    &'static str,
-    Option<&'static str>,
-    ort::ep::ExecutionProviderDispatch,
-);
-
-fn build(path: &Path, gpu: Option<ort::ep::ExecutionProviderDispatch>) -> ort::Result<Session> {
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let mut builder = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(threads)?;
-    if let Some(gpu) = gpu {
-        // DirectML can't use ONNX Runtime's memory pattern optimization.
-        builder = builder
-            .with_memory_pattern(!cfg!(windows))?
-            .with_execution_providers([gpu.error_on_failure()])?;
-    }
-    builder.commit_from_file(path)
-}
-
-/// This platform's GPU execution providers, best first, with a display name
-/// and the tag a failure is remembered by (see [`first_that_loads`]):
-/// DirectML on Windows, Core ML on macOS. Nodes a provider can't run still
-/// go to the CPU. Setting `APERIO_AI_CPU=1` skips the GPU, for comparing
-/// results or working around a driver problem.
-fn gpu_providers(model: &Path) -> Vec<GpuProvider> {
-    if std::env::var_os("APERIO_AI_CPU").is_some_and(|v| v != "0") {
-        return Vec::new();
-    }
-    let _ = model;
-    #[cfg(windows)]
-    return vec![("DirectML", None, ort::ep::DirectML::default().build())];
-    #[cfg(target_os = "macos")]
-    {
-        use ort::ep::coreml::{ComputeUnits, ModelFormat};
-        // Only Core ML's ML Program format: the older neural network format
-        // takes BiRefNet but splits it with the CPU so much that it ran
-        // several times slower than the CPU alone.
-        let provider = ort::ep::CoreML::default()
-            .with_model_format(ModelFormat::MLProgram)
-            .with_compute_units(ComputeUnits::All)
-            // Core ML compiles the model on first use; keep that for next time.
-            .with_model_cache_dir(model.with_extension("coreml").display())
-            .build();
-        return vec![("Core ML", Some("coreml"), provider)];
-    }
-    #[allow(unreachable_code)]
-    Vec::new()
 }
 
 fn class() -> ParamSpec {
@@ -372,9 +281,9 @@ impl Plugin for Segment {
             models: models::ALL
                 .iter()
                 .map(|m| ModelInfo {
-                    name: m.name.into(),
-                    license: m.license.into(),
-                    source: m.source.into(),
+                    name: m.file.name.into(),
+                    license: m.file.license.into(),
+                    source: m.file.source.into(),
                 })
                 .collect(),
         }
@@ -390,8 +299,8 @@ impl Plugin for Segment {
             // photo never silently gets the rougher mask.
             ("subject", "fast")
                 if models::FAST_SUBJECT_ENABLED
-                    && (models::FAST_SUBJECT.is_installed(&self.dir)
-                        || !models::SUBJECT.is_installed(&self.dir)) =>
+                    && (models::FAST_SUBJECT.file.is_installed(&self.dir)
+                        || !models::SUBJECT.file.is_installed(&self.dir)) =>
             {
                 models::FAST_SUBJECT
             }
@@ -433,35 +342,6 @@ fn to_srgb(v: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn remembers_gpu_providers_that_fail() {
-        let dir = std::env::temp_dir().join(format!("aperio-providers-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let model = dir.join("m.onnx");
-        let tries = std::cell::RefCell::new(Vec::new());
-        let build = |_: &Path, p: Option<u8>| {
-            tries.borrow_mut().push(p);
-            match p {
-                Some(1) => Err(ort::Error::new("can't convert")),
-                _ => Ok(()),
-            }
-        };
-        let candidates = || {
-            [
-                ("A", Some("a"), Some(1u8)),
-                ("B", None, Some(1)),
-                ("CPU", None, None),
-            ]
-        };
-        let loaded = |c| first_that_loads(&model, c, build).unwrap().1;
-        assert_eq!(loaded(candidates()), "CPU");
-        assert!(dir.join("m.a.unsupported").exists());
-        // A remembered failure isn't tried again; one without a tag is.
-        assert_eq!(loaded(candidates()), "CPU");
-        assert_eq!(*tries.borrow(), [Some(1), Some(1), None, Some(1), None]);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 
     use serde_json::json;
 
@@ -561,11 +441,11 @@ mod tests {
         };
         let fast = json!({"class": "subject", "detail": "fast"});
         let err = plugin.mask(&fast, img).unwrap_err().to_string();
-        assert!(err.contains(models::FAST_SUBJECT.name), "{err}");
+        assert!(err.contains(models::FAST_SUBJECT.file.name), "{err}");
         // A stand-in "best" model of the right size: the fast mask now tries
         // it (and fails to load it) instead of asking for the fast one.
-        let best = std::fs::File::create(models::SUBJECT.path(&dir)).unwrap();
-        best.set_len(models::SUBJECT.size_bytes).unwrap();
+        let best = std::fs::File::create(models::SUBJECT.file.path(&dir)).unwrap();
+        best.set_len(models::SUBJECT.file.size_bytes).unwrap();
         let err = plugin.mask(&fast, img).unwrap_err().to_string();
         assert!(err.contains("birefnet_lite"), "{err}");
         std::fs::remove_dir_all(dir).unwrap();
@@ -578,8 +458,8 @@ mod tests {
         let plugin = Segment::new(models::default_dir());
         if !models::ALL
             .iter()
-            .filter(|m| !m.optional)
-            .all(|m| m.is_installed(plugin.models_dir()))
+            .filter(|m| !m.file.optional)
+            .all(|m| m.file.is_installed(plugin.models_dir()))
         {
             eprintln!("skipping: models not downloaded");
             return;
@@ -614,7 +494,7 @@ mod tests {
         plugin.prepare(img, || true);
         assert_eq!(plugin.outputs.lock().unwrap().len(), 2);
         if models::ALL.contains(&models::FAST_SUBJECT)
-            && models::FAST_SUBJECT.is_installed(plugin.models_dir())
+            && models::FAST_SUBJECT.file.is_installed(plugin.models_dir())
         {
             let fast = plugin
                 .mask(&json!({"class": "subject", "detail": "fast"}), img)

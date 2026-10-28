@@ -78,7 +78,7 @@ fn landscape(width: u32, height: u32) -> RgbImage {
 #[test]
 fn edits_masks_replaces_the_sky_and_exports() {
     let dir = &models::default_dir();
-    if !models::SKY.is_installed(dir) {
+    if !models::SKY.file.is_installed(dir) {
         assert!(
             std::env::var_os("APERIO_REQUIRE_MODELS").is_none(),
             "the sky model isn't downloaded in {}",

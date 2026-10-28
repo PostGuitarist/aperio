@@ -84,11 +84,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "aperio-ai"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
+ "ort",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
 name = "aperio-app"
 version = "0.1.0"
 dependencies = [
+ "aperio-ai",
  "aperio-core",
  "aperio-plugin",
+ "aperio-plugin-denoise",
  "aperio-plugin-segment",
  "aperio-plugin-sky",
  "aperio-plugin-vignette",
@@ -106,8 +118,10 @@ dependencies = [
 name = "aperio-cli"
 version = "0.1.0"
 dependencies = [
+ "aperio-ai",
  "aperio-core",
  "aperio-plugin",
+ "aperio-plugin-denoise",
  "aperio-plugin-segment",
  "aperio-plugin-sky",
  "aperio-plugin-vignette",
@@ -135,16 +149,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "aperio-plugin-denoise"
+version = "0.1.0"
+dependencies = [
+ "aperio-ai",
+ "aperio-plugin",
+ "serde_json",
+]
+
+[[package]]
 name = "aperio-plugin-segment"
 version = "0.1.0"
 dependencies = [
+ "aperio-ai",
  "aperio-plugin",
  "aperio-render",
  "dirs 6.0.0",
- "ort",
  "serde_json",
- "sha2",
- "ureq",
 ]
 
 [[package]]

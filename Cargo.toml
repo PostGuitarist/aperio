@@ -1,10 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/aperio-ai",
     "crates/aperio-core",
     "crates/aperio-plugin",
     "crates/aperio-render",
     "crates/aperio-cli",
+    "plugins/denoise",
     "plugins/segment",
     "plugins/sky",
     "plugins/vignette",
@@ -19,8 +21,10 @@ repository = "https://github.com/PostGuitarist/aperio"
 rust-version = "1.90"
 
 [workspace.dependencies]
+aperio-ai = { path = "crates/aperio-ai" }
 aperio-core = { path = "crates/aperio-core" }
 aperio-plugin = { path = "crates/aperio-plugin" }
+aperio-plugin-denoise = { path = "plugins/denoise" }
 aperio-plugin-segment = { path = "plugins/segment" }
 aperio-plugin-sky = { path = "plugins/sky" }
 aperio-plugin-vignette = { path = "plugins/vignette" }
@@ -37,6 +41,9 @@ thiserror = "2"
 opt-level = 3
 
 [profile.dev.package.aperio-render]
+opt-level = 3
+
+[profile.dev.package.aperio-plugin-denoise]
 opt-level = 3
 
 [profile.dev.package.aperio-plugin-segment]
