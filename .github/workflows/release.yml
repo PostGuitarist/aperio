@@ -223,11 +223,17 @@ jobs:
             gh release upload "$TAG" release/* --clobber
             gh release edit "$TAG" --title "$TITLE" --prerelease="$PRERELEASE" --draft="$DRAFT"
           else
+            # List the pull requests since the last full release. Without a
+            # start tag GitHub counts from the latest release of any kind,
+            # which can be a pre-release or the models release.
+            since=$(gh release list --exclude-pre-releases --exclude-drafts --json tagName \
+              --jq '[.[].tagName | select(startswith("v"))][0] // empty')
             gh release create "$TAG" release/* \
               --verify-tag \
               --title "$TITLE" \
               --notes-file docs/release-notes.md \
               --generate-notes \
+              ${since:+--notes-start-tag "$since"} \
               --prerelease="$PRERELEASE" \
               --draft="$DRAFT"
           fi
