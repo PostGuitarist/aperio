@@ -18,7 +18,7 @@ import {
   writeCrop,
   writeCurve,
 } from "./doc";
-import { buildAi, pluginLayerControls } from "./ai";
+import { buildAi, denoiseControls, pluginLayerControls } from "./ai";
 import { aspectFor, boxForAspect, currentBox, fitInside, setBox } from "./overlay";
 import { type Tab, changed, commit, editor, onUpdate, refresh } from "./state";
 
@@ -128,6 +128,8 @@ function buildAdjust(root: HTMLElement) {
   add(color, "tint", "Tint", -1, 1, 0.01, signed(2), "tint");
   add(color, "vibrance", "Vibrance", -1, 1, 0.01, signed(2));
   add(color, "saturation", "Saturation", -1, 1, 0.01, signed(2));
+
+  syncs.push(denoiseControls(root));
 
   return () => syncs.forEach((s) => s());
 }
