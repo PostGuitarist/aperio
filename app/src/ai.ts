@@ -3,6 +3,7 @@
 // plugin's own parameter list.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Layer, Mask, Operation } from "./doc";
 import { group, h, slider } from "./panels";
@@ -31,6 +32,8 @@ export interface PluginInfo {
 export const SEGMENT = "org.aperio.segment";
 export const SKY = "org.aperio.sky";
 export const RELIGHT = "org.aperio.sky.relight";
+export const DENOISE = "org.aperio.denoise";
+const DENOISE_MODEL = "nafnet_sidd_width32";
 
 export const plugins = new Map<string, PluginInfo>();
 
@@ -230,6 +233,85 @@ export function addEffect(info: PluginInfo) {
   editor.doc.layers[editor.selected].operations.push({ op: "plugin", plugin: info.id, version: info.version, params });
   editor.tab = "layers";
   commit();
+}
+
+// --- Denoise (in the Adjust tab) -----------------------------------------------------
+
+/** The Noise group: AI denoise on the base layer, which runs on the
+ * full-size photo in the background. Returns a sync function. The group
+ * appears once the plugin list has loaded, if the denoise plugin is
+ * installed. */
+export function denoiseControls(root: HTMLElement): () => void {
+  const holder = h("div", {});
+  root.append(holder);
+  let sync: (() => void) | undefined;
+  return () => {
+    const info = plugins.get(DENOISE);
+    if (!sync && info?.source) sync = buildDenoise(holder, info, info.source.params);
+    sync?.();
+  };
+}
+
+function buildDenoise(root: HTMLElement, info: PluginInfo, specs: ParamSpec[]): () => void {
+  const base = () => editor.doc.layers[0];
+  const index = () => (editor.opened ? base().operations.findIndex((op) => op.op === "plugin" && op.plugin === DENOISE) : -1);
+  const body = group(root, "Noise");
+  const on = h("input", { type: "checkbox" });
+  on.addEventListener("change", () => {
+    const i = index();
+    if (on.checked && i < 0) {
+      const params: Params = {};
+      for (const p of specs) if (p.kind === "number") params[p.key] = p.default;
+      // First, so it runs on the photo before anything else in the layer.
+      base().operations.unshift({ op: "plugin", plugin: DENOISE, version: info.version, params });
+    } else if (!on.checked && i >= 0) {
+      base().operations.splice(i, 1);
+    }
+    commit();
+  });
+  body.append(h("label", { className: "check" }, on, "AI denoise"));
+  const sliders = h("div", {});
+  body.append(sliders);
+  const scratch: Params = {};
+  const syncSliders = paramControls(sliders, specs, () => {
+    const i = index();
+    return i < 0 ? scratch : (((base().operations[i] as PluginOp).params ??= {}) as Params);
+  });
+  const progress = h("progress", { max: 1, value: 0, hidden: true });
+  const status = h("p", { className: "hint muted" });
+  body.append(progress, status);
+
+  let running: number | null = null;
+  let error: string | null = null;
+  const showStatus = () => {
+    const missing = statuses.some((m) => m.id === DENOISE_MODEL && !m.installed);
+    progress.hidden = running === null;
+    progress.value = running ?? 0;
+    if (index() < 0) status.textContent = "Removes noise from high-ISO photos. It runs once on the full-size photo, which can take a few minutes on a laptop.";
+    else if (missing) status.textContent = "Download the denoise model in the AI tab first.";
+    else if (running !== null) status.textContent = `Denoising the full-size photo… ${Math.round(running * 100)}%. You can keep editing.`;
+    else if (error) status.textContent = `Denoise didn't run: ${error}`;
+    else status.textContent = "Moving the sliders reuses the denoised photo, so it's quick.";
+  };
+  void listen<number>("clean-progress", (e) => {
+    running = e.payload;
+    showStatus();
+  });
+  void listen<{ error: string | null }>("clean-done", (e) => {
+    running = null;
+    error = e.payload.error;
+    showStatus();
+    // The preview now starts from the new result.
+    changed();
+  });
+  return () => {
+    const i = index();
+    on.disabled = !editor.opened;
+    on.checked = i >= 0;
+    sliders.hidden = i < 0;
+    syncSliders();
+    showStatus();
+  };
 }
 
 // --- The AI tab -----------------------------------------------------------------------

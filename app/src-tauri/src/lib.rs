@@ -1,3 +1,4 @@
+mod clean;
 mod library;
 mod view;
 
@@ -17,7 +18,7 @@ use aperio_render::{
 };
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
-use tauri::State;
+use tauri::{AppHandle, State};
 use view::View;
 
 /// Longest edge of the on-screen preview. Full resolution is used for export.
@@ -35,6 +36,8 @@ struct AppState {
     session: Arc<Mutex<Option<Session>>>,
     /// Steps the last preview left out, for the UI to explain.
     skipped: Mutex<Vec<SkippedStep>>,
+    /// Runs source steps such as denoise in the background.
+    cleaner: Arc<clean::Cleaner>,
 }
 
 struct Plugins {
@@ -156,6 +159,7 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
         doc: doc.clone(),
     };
     prepare_ai_masks(&state.plugins, &preview);
+    state.cleaner.new_photo();
     *state.session.lock().unwrap() = Some(Session {
         source,
         full,
@@ -211,6 +215,7 @@ async fn render_preview(
     view: View,
     save: bool,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> CmdResult<Response> {
     if doc.format != FORMAT_ID || doc.layers.is_empty() {
         return Err("not an Aperio edit document".into());
@@ -230,16 +235,22 @@ async fn render_preview(
     // A saved edit seen the normal way also becomes the library thumbnail.
     let thumb = save && view.crop && view.mask_overlay.is_none() && !view.before;
     let session = state.session.clone();
-    let (img, skipped) = with_renderer(&state, move |r| {
-        let mut img = if view.before {
-            preview
+    let render_doc = doc.clone();
+    let (img, skipped, wanted) = with_renderer(&state, move |r| {
+        let (mut img, wanted) = if view.before {
+            (preview, None)
         } else {
-            cleaned_preview(r, &session, &doc, preview)
+            clean::preview_source(r, &session, &render_doc, preview)
         };
-        let skipped = view::render(r, &doc, view, &mut img);
-        (img, skipped)
+        let skipped = view::render(r, &render_doc, view, &mut img);
+        (img, skipped, wanted)
     })
     .await?;
+    if let Some(key) = wanted {
+        state
+            .cleaner
+            .request(key, doc, &app, &state.session, &state.plugins.host);
+    }
     if thumb {
         library::store_edited(&library::cache_dir(), &source, &srgb8(&img));
     }
@@ -249,41 +260,10 @@ async fn render_preview(
         .map_err(err)
 }
 
-/// The preview after the document's source steps, made from the full-size
-/// photo and kept until the steps change. `preview` itself when there are
-/// none.
-fn cleaned_preview(
-    r: &Renderer,
-    session: &Mutex<Option<Session>>,
-    doc: &EditDocument,
-    preview: LinearImage,
-) -> LinearImage {
-    let steps = r.source_steps(doc);
-    if steps.is_empty() {
-        return preview;
-    }
-    let key = format!("{steps:?}");
-    let full = {
-        let session = session.lock().unwrap();
-        let Some(session) = session.as_ref() else {
-            return preview;
-        };
-        if let Some((k, img)) = &session.cleaned {
-            if *k == key {
-                return img.clone();
-            }
-        }
-        session.full.clone()
-    };
-    let mut full = full;
-    // Steps that can't run are reported by the render that follows, which
-    // sees them as plugin steps it can't render.
-    let _ = r.run_source_steps(doc, &mut full, Progress::none());
-    let cleaned = full.downscale(PREVIEW_EDGE);
-    if let Some(session) = session.lock().unwrap().as_mut() {
-        session.cleaned = Some((key, cleaned.clone()));
-    }
-    cleaned
+/// Where the background source steps (such as denoise) stand.
+#[tauri::command]
+fn clean_status(state: State<'_, AppState>) -> clean::Status {
+    state.cleaner.status()
 }
 
 /// Steps the last preview couldn't render (e.g. an AI model that isn't
@@ -600,6 +580,7 @@ pub fn run() {
             open_image,
             render_preview,
             last_skipped,
+            clean_status,
             export_target,
             export_image,
             renderer_info,

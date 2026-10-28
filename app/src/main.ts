@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { loadPlugins } from "./ai";
 import { buildExport } from "./export";
@@ -36,6 +37,7 @@ const beforeButton = $<HTMLButtonElement>("#before");
 const timing = $("#timing");
 const savedNote = $<HTMLSpanElement>("#saved");
 const notice = $<HTMLSpanElement>("#notice");
+const background = $<HTMLSpanElement>("#background");
 const histogram = $<HTMLCanvasElement>("#histogram");
 const overlay = new Overlay($<SVGSVGElement>("#overlay"));
 
@@ -94,6 +96,11 @@ async function showSkipped() {
     : `Not rendered: ${skipped[0].reason}${skipped.length > 1 ? ` (+${skipped.length - 1} more)` : ""}`;
   notice.title = skipped.map((s) => `Layer ${s.layer}: ${s.reason}`).join("\n");
 }
+
+// Denoise runs on the full-size photo in the background; show how far along
+// it is wherever the editor is.
+void listen<number>("clean-progress", (e) => (background.textContent = `Denoising ${Math.round(e.payload * 100)}%`));
+void listen("clean-done", () => (background.textContent = ""));
 
 // AI masks can take a while the first time; say so instead of looking stuck.
 let busyTimer: number | undefined;
