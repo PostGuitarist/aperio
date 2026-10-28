@@ -75,7 +75,7 @@ Each operation has an `op` tag. Built-in operations:
 | `color` | `saturation`, `vibrance`, each -1 to 1 |
 | `curve` | `channel` (`rgb`, `red`, `green`, `blue`, `luma`), `points` as `[x, y]` pairs in 0–1. Points are joined with a monotone cubic and act on sRGB-encoded values; `luma` scales all three channels together so hue is kept. |
 | `crop` | `x`, `y`, `width`, `height` normalized to the oriented source, and `angle_deg` rotating the rectangle around its center. Applied after every other operation; only the last crop counts. |
-| `plugin` | `plugin` id, `version`, free-form `params`. Runs in order with the layer's other operations on the layer's input; the result is blended through the layer's mask. See [plugins.md](plugins.md). |
+| `plugin` | `plugin` id, `version`, free-form `params`. Runs in order with the layer's other operations on the layer's input; the result is blended through the layer's mask. A plugin that declares the step a *source step* (such as denoise) instead runs it once on the full-size photo before any layer, ignoring the layer's mask and opacity. See [plugins.md](plugins.md). |
 
 ## Masks
 

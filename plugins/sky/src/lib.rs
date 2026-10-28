@@ -122,6 +122,7 @@ impl Plugin for SkyReplace {
                 ],
             }),
             mask: None,
+            source: None,
             models: vec![],
         }
     }

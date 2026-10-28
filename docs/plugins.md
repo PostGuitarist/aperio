@@ -1,12 +1,12 @@
 # Writing a plugin
 
-Plugins add **operations** (steps that change pixels) and **masks** (weights that choose where a layer applies). Aperio's own AI features, such as sky and subject segmentation, are plugins written against the same API described here.
+Plugins add **operations** (steps that change pixels), **masks** (weights that choose where a layer applies), and **source steps** (slow clean-ups, such as denoising, that run once on the full-size photo before any layer). Aperio's own AI features, such as sky and subject segmentation, are plugins written against the same API described here.
 
 The API lives in [`crates/aperio-plugin`](../crates/aperio-plugin/src/lib.rs). [`plugins/vignette`](../plugins/vignette/src/lib.rs) is a complete example that uses nothing else, so it's a good starting point to copy.
 
 ## How plugins are loaded
 
-For v0.1, a plugin is a Rust crate compiled into the app. The app and the `aperio` command line tool each register their bundled plugins with a `Host` at startup. Loading plugins from outside the build (dynamic libraries or WebAssembly) will come once this API has settled. `API_VERSION` is bumped whenever the trait changes in a way that breaks existing plugins.
+For v0.1, a plugin is a Rust crate compiled into the app. The app and the `aperio` command line tool each register their bundled plugins with a `Host` at startup. Loading plugins from outside the build (dynamic libraries or WebAssembly) will come once this API has settled. `API_VERSION` is bumped whenever the trait changes in a way that breaks existing plugins. Version 2 (Aperio 0.2) added source steps, so plugins written for version 1 need a `source: None` line in their `PluginInfo`.
 
 To bundle a plugin, add the crate to the workspace and register it in `plugins()` in `crates/aperio-cli/src/main.rs` and `app/src-tauri/src/lib.rs`.
 
@@ -18,6 +18,8 @@ pub trait Plugin: Send + Sync {
     fn apply(&self, params: &Value, image: ImageMut<'_>) -> Result<()>;   // optional
     fn apply_masked(&self, params: &Value, image: ImageMut<'_>,
                     mask: Option<&[f32]>) -> Result<()>;                // optional
+    fn source(&self, params: &Value, image: ImageMut<'_>,
+              progress: Progress<'_>) -> Result<()>;                   // optional
     fn mask(&self, params: &Value, source: Image<'_>) -> Result<Vec<f32>>; // optional
 }
 ```
@@ -26,11 +28,12 @@ pub trait Plugin: Send + Sync {
   - `id`: reverse-domain, such as `org.example.grain`.
   - `version`: semantic versioning.
   - `license`: an SPDX license id.
-  - `operation` / `mask`: what the plugin provides, each with a UI label and a list of `ParamSpec`s (numbers, booleans, choices, file paths). The app builds controls from these, so a plugin doesn't need any UI code.
+  - `operation` / `mask` / `source`: what the plugin provides, each with a UI label and a list of `ParamSpec`s (numbers, booleans, choices, file paths). The app builds controls from these, so a plugin doesn't need any UI code.
   - `models`: every model file the plugin uses, with its license.
 - **`apply`** changes pixels in place. Images are linear-light RGBA with sRGB primaries (values can go above 1), stored row by row. The renderer gives the operation a copy of the layer's input and blends the result back through the layer's mask and opacity, so an operation can change every pixel. Inside a layer, plugin operations run in document order, between the built-in steps around them.
 - **`apply_masked`** is `apply` with the layer's mask, for operations that need to know where they will show (`None` when the layer has no mask, or a hand-drawn one). By default it calls `apply`, so most plugins only write `apply`.
-- **`mask`** returns one weight per pixel (0 = not applied, 1 = fully applied). It receives the decoded photo *before* any adjustments, so the mask doesn't move as the user edits. The host caches results by plugin, parameters, and image, so a slow mask (such as a neural network) runs once per photo and preview size, not on every slider move.
+- **`source`** changes the full-size photo in place, once, before any layer runs. Use it for work that needs every pixel at full resolution and is too slow to repeat on each slider move, such as an AI denoiser. A source step is stored in the sidecar like any plugin operation (normally on the base layer), but it runs wherever it is, in document order, ignoring its layer's mask and opacity; turning its layer off turns it off. The host keeps the result for the photo and parameters, and the preview, masks, and export all start from it. Call `progress.report(share_done)?` now and then: it lets the app show a progress bar, and returns `Err(Cancelled)` when the user moves on so the plugin can stop early.
+- **`mask`** returns one weight per pixel (0 = not applied, 1 = fully applied). It receives the decoded photo *before* any adjustments (but after source steps), so the mask doesn't move as the user edits. The host caches results by plugin, parameters, and image, so a slow mask (such as a neural network) runs once per photo and preview size, not on every slider move.
 
 Read parameters through your `ParamSpec`s (`read_number`, `read_bool`, `read_choice`, `read_path`). These fill in defaults for missing keys and clamp numbers to their range, so older sidecars keep working when you add a parameter.
 

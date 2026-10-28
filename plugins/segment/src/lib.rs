@@ -368,6 +368,7 @@ impl Plugin for Segment {
                     vec![class(), invert()]
                 },
             }),
+            source: None,
             models: models::ALL
                 .iter()
                 .map(|m| ModelInfo {

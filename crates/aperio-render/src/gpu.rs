@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use aperio_core::{EditDocument, Mask};
-use aperio_plugin::{Host, Image, ImageMut};
+use aperio_plugin::{Host, Image, ImageMut, PluginError, Progress};
 use rayon::prelude::*;
 
-use crate::adjust::{blend, compile, LayerProgram, Program, Skipped};
+use crate::adjust::{blend, compile, LayerProgram, PluginStep, Program, Skipped};
 use crate::masks::MaskCache;
 use crate::{Error, LinearImage, Result};
 
@@ -24,6 +24,10 @@ pub struct Renderer {
     plugins: Option<Arc<Host>>,
     masks: MaskCache,
 }
+
+/// Returned when a caller cancels [`Renderer::run_source_steps`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cancelled;
 
 /// A layer ready to run, with its mask rasterized at the image's size.
 type Prepared = (LayerProgram, Option<Arc<Vec<f32>>>);
@@ -105,12 +109,74 @@ impl Renderer {
         self.masks.rasterize(mask, width, height)
     }
 
+    /// Run the document's source steps (such as denoising) on `img`, which
+    /// should be the full-size photo: each enabled layer's source steps, in
+    /// document order, ignoring layer masks and opacity. Run this before
+    /// [`Renderer::render`], which leaves source steps out, and before
+    /// making a preview-sized copy. Results are cached by the plugin host,
+    /// so running it again with unchanged steps is quick.
+    ///
+    /// Returns the steps that couldn't run, or [`Cancelled`] if `progress`
+    /// asked to stop (`img` is then unchanged).
+    pub fn run_source_steps(
+        &self,
+        doc: &EditDocument,
+        img: &mut LinearImage,
+        progress: Progress<'_>,
+    ) -> std::result::Result<Vec<Skipped>, Cancelled> {
+        let mut skipped = Vec::new();
+        let Some(host) = &self.plugins else {
+            return Ok(skipped);
+        };
+        let mut result: Option<Arc<Vec<[f32; 4]>>> = None;
+        for (layer, step) in self.source_steps(doc) {
+            let input = Image {
+                width: img.width,
+                height: img.height,
+                pixels: result.as_deref().map_or(&img.pixels, |p| p),
+            };
+            match host.source(&step.plugin, &step.version, &step.params, input, progress) {
+                Ok(pixels) => result = Some(pixels),
+                Err(PluginError::Cancelled) => return Err(Cancelled),
+                Err(e) => skipped.push(Skipped {
+                    layer,
+                    op: step.plugin.clone(),
+                    reason: e.to_string(),
+                }),
+            }
+        }
+        if let Some(pixels) = result {
+            img.pixels.copy_from_slice(&pixels);
+        }
+        Ok(skipped)
+    }
+
+    /// The document's source steps that [`Renderer::run_source_steps`]
+    /// runs, with their layer index, in order. Empty without plugins.
+    pub fn source_steps(&self, doc: &EditDocument) -> Vec<(usize, PluginStep)> {
+        let Some(host) = &self.plugins else {
+            return Vec::new();
+        };
+        compile(doc)
+            .layers
+            .into_iter()
+            .flat_map(|l| l.plugin_steps.into_iter().map(move |s| (l.index, s)))
+            .filter(|(_, s)| host.is_source(&s.plugin))
+            .collect()
+    }
+
     /// Render `doc` onto `img`: each layer's adjustments blended over the
     /// layers below through its mask, then the crop, which can change the
     /// image size. Returns the steps that couldn't be rendered (a plugin
-    /// that isn't installed, for example), which were left out.
+    /// that isn't installed, for example), which were left out. Source steps
+    /// are left out without a report: see [`Renderer::run_source_steps`].
     pub fn render(&self, doc: &EditDocument, img: &mut LinearImage) -> Vec<Skipped> {
         let mut program = compile(doc);
+        if let Some(host) = &self.plugins {
+            for layer in &mut program.layers {
+                layer.plugin_steps.retain(|s| !host.is_source(&s.plugin));
+            }
+        }
         let mut skipped = std::mem::take(&mut program.skipped);
         // Every mask is made before any layer runs, so plugin masks see the
         // photo without adjustments.
@@ -596,6 +662,7 @@ mod tests {
                 license: "MIT".into(),
                 operation: None,
                 mask: None,
+                source: None,
                 models: vec![],
             }
         }
@@ -648,6 +715,129 @@ mod tests {
 
     fn flat(n: u32) -> LinearImage {
         LinearImage::new(n, n, vec![[0.25, 0.25, 0.25, 1.0]; (n * n) as usize])
+    }
+
+    /// Test source step: adds `add` to every channel, counting its runs,
+    /// and cancels when progress asks it to.
+    struct Lift(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl aperio_plugin::Plugin for Lift {
+        fn info(&self) -> aperio_plugin::PluginInfo {
+            aperio_plugin::PluginInfo {
+                id: "org.example.lift".into(),
+                name: "Lift".into(),
+                version: "1.0.0".into(),
+                api_version: aperio_plugin::API_VERSION,
+                license: "MIT".into(),
+                operation: None,
+                mask: None,
+                source: Some(aperio_plugin::Provides {
+                    label: "Lift".into(),
+                    params: vec![],
+                }),
+                models: vec![],
+            }
+        }
+
+        fn source(
+            &self,
+            params: &serde_json::Value,
+            image: ImageMut<'_>,
+            progress: Progress<'_>,
+        ) -> aperio_plugin::Result<()> {
+            progress.report(0.5)?;
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let add = params["add"].as_f64().unwrap_or(0.0) as f32;
+            for px in image.pixels {
+                for c in &mut px[..3] {
+                    *c += add;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn lift(add: f32) -> Operation {
+        Operation::Plugin {
+            plugin: "org.example.lift".into(),
+            version: "1.0.0".into(),
+            params: serde_json::json!({ "add": add }),
+        }
+    }
+
+    #[test]
+    fn source_steps_run_once_before_layers_and_render_skips_them() {
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut host = Host::new();
+        host.register(Lift(runs.clone())).unwrap();
+        let r = Renderer::cpu().with_plugins(Arc::new(host));
+        let mut d = doc();
+        d.layers[0].operations = vec![Operation::Exposure { ev: 1.0 }, lift(0.25)];
+        // A source step on an upper layer runs too, after the base one,
+        // ignoring the layer's mask and opacity.
+        let mut upper = Layer::new("Upper");
+        upper.opacity = 0.5;
+        upper.mask = Some(Mask::Plugin {
+            plugin: "org.aperio.segment".into(),
+            version: "0.1.0".into(),
+            params: serde_json::Value::Null,
+        });
+        upper.operations = vec![lift(0.5)];
+        d.layers.push(upper);
+
+        let mut img = flat(4);
+        assert_eq!(
+            r.run_source_steps(&d, &mut img, Progress::none()),
+            Ok(vec![])
+        );
+        assert_eq!(img.pixels[0], [1.0, 1.0, 1.0, 1.0]);
+        // Rendering leaves the source steps out: only the exposure runs, and
+        // the upper layer has nothing left to do, so its missing mask
+        // doesn't matter.
+        let skipped = r.render(&d, &mut img);
+        assert_eq!(img.pixels[0], [2.0, 2.0, 2.0, 1.0]);
+        assert_eq!(skipped, vec![]);
+
+        // The same steps on the same photo come from the cache.
+        let mut again = flat(4);
+        r.run_source_steps(&d, &mut again, Progress::none())
+            .unwrap();
+        assert_eq!(again.pixels[0], [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        // A disabled layer's steps don't run.
+        d.layers[1].enabled = false;
+        let mut img = flat(4);
+        r.run_source_steps(&d, &mut img, Progress::none()).unwrap();
+        assert_eq!(img.pixels[0], [0.5, 0.5, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn source_steps_can_be_cancelled_and_report_missing_plugins() {
+        let mut host = Host::new();
+        host.register(Lift(Default::default())).unwrap();
+        let r = Renderer::cpu().with_plugins(Arc::new(host));
+        let mut d = doc();
+        d.layers[0].operations = vec![lift(0.25)];
+        let mut img = flat(2);
+        let stop = |_: f32| false;
+        assert_eq!(
+            r.run_source_steps(&d, &mut img, Progress::new(&stop)),
+            Err(Cancelled)
+        );
+        assert_eq!(img, flat(2));
+
+        // Without the plugin, the step isn't known to be a source step: the
+        // renderer reports it like any missing plugin operation.
+        let mut img = flat(2);
+        let r = Renderer::cpu().with_plugins(Arc::new(Host::new()));
+        assert_eq!(
+            r.run_source_steps(&d, &mut img, Progress::none()),
+            Ok(vec![])
+        );
+        let skipped = r.render(&d, &mut img);
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].reason.contains("not installed"), "{skipped:?}");
     }
 
     #[test]

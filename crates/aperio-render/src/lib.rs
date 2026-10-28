@@ -25,7 +25,7 @@ pub use adjust::{compile, AdjustOp, LayerProgram, Program, Skipped};
 pub use decode::decode;
 pub use export::{export, jpeg_bytes, srgb8, ExportFormat};
 pub use geometry::CropRect;
-pub use gpu::Renderer;
+pub use gpu::{Cancelled, Renderer};
 
 /// A decoded image in linear light, RGBA, row-major.
 #[derive(Debug, Clone, PartialEq)]

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use aperio_core::{sidecar_path, EditDocument, SourceRef};
-use aperio_plugin::Host;
+use aperio_plugin::{Host, Progress};
 use aperio_plugin_segment::models;
 use aperio_render::{decode, export, ExportFormat, Renderer};
 
@@ -224,7 +224,20 @@ fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut img = decode(&input)?;
     let renderer = Renderer::new().with_plugins(Arc::new(plugins()));
-    for s in renderer.render(&doc, &mut img) {
+    let report = |done: f32| {
+        eprint!("\rcleaning up the photo: {:3.0}%", done * 100.0);
+        true
+    };
+    let cleaned = renderer.run_source_steps(&doc, &mut img, Progress::new(&report));
+    if !renderer.source_steps(&doc).is_empty() {
+        eprintln!();
+    }
+    // The CLI never cancels, so there's always a list.
+    let source_skipped = cleaned.unwrap_or_default();
+    for s in source_skipped
+        .into_iter()
+        .chain(renderer.render(&doc, &mut img))
+    {
         eprintln!(
             "warning: skipped `{}` on layer {}: {}",
             s.op, s.layer, s.reason
