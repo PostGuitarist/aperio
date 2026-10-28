@@ -1,7 +1,8 @@
 //! The plugin API for Aperio.
 //!
-//! A plugin adds operations (which change pixels) and/or masks (which choose
-//! where a layer applies). AI features such as sky and subject segmentation
+//! A plugin adds operations (which change pixels), masks (which choose where
+//! a layer applies), and/or source steps (which clean up the whole photo once,
+//! at full size, before any layer). AI features such as sky and subject segmentation
 //! are plugins, written against this same API as third-party ones.
 //!
 //! Plugins are Rust crates built into the app: implement [`Plugin`] and
@@ -23,7 +24,9 @@ use serde_json::Value;
 
 /// Bumped when [`Plugin`] changes incompatibly. Plugins report the version
 /// they were built for in [`PluginInfo::api_version`].
-pub const API_VERSION: u32 = 1;
+///
+/// 2: source steps ([`PluginInfo::source`], [`Plugin::source`]).
+pub const API_VERSION: u32 = 2;
 
 /// A read-only view of an image.
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +73,9 @@ pub struct PluginInfo {
     pub operation: Option<Provides>,
     /// Present if the plugin provides a mask.
     pub mask: Option<Provides>,
+    /// Present if the plugin provides a source step: an operation that runs
+    /// once on the full-size photo before any layer, such as denoising.
+    pub source: Option<Provides>,
     /// Model files the plugin needs, with their licenses (AI plugins).
     pub models: Vec<ModelInfo>,
 }
@@ -101,11 +107,52 @@ pub enum PluginError {
     InvalidParams(String),
     #[error("model unavailable: {0}")]
     ModelUnavailable(String),
+    #[error("cancelled")]
+    Cancelled,
     #[error("{0}")]
     Failed(String),
 }
 
 pub type Result<T> = std::result::Result<T, PluginError>;
+
+/// Where a slow step reports how far along it is, and learns whether it
+/// should stop.
+#[derive(Clone, Copy)]
+pub struct Progress<'a> {
+    report: Option<&'a (dyn Fn(f32) -> bool + Sync)>,
+}
+
+impl<'a> Progress<'a> {
+    /// `report` gets the share done, from 0 to 1, and returns `false` to
+    /// cancel the step.
+    pub fn new(report: &'a (dyn Fn(f32) -> bool + Sync)) -> Self {
+        Self {
+            report: Some(report),
+        }
+    }
+
+    /// Nobody is listening and the step can't be cancelled.
+    pub fn none() -> Self {
+        Self { report: None }
+    }
+
+    /// Report the share done. Returns [`PluginError::Cancelled`] if the
+    /// step should stop, so a plugin can use `progress.report(f)?`.
+    pub fn report(&self, done: f32) -> Result<()> {
+        match self.report {
+            Some(f) if !f(done.clamp(0.0, 1.0)) => Err(PluginError::Cancelled),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl std::fmt::Debug for Progress<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Progress")
+            .field("listening", &self.report.is_some())
+            .finish()
+    }
+}
 
 /// Implemented by every plugin. Methods may be called from several threads.
 pub trait Plugin: Send + Sync {
@@ -130,6 +177,16 @@ pub trait Plugin: Send + Sync {
     ) -> Result<()> {
         let _ = mask;
         self.apply(params, image)
+    }
+
+    /// Run the plugin's source step on the full-size photo, in place. It runs
+    /// once per photo and parameters, before every layer, and the host keeps
+    /// the result, so it may take a long time (e.g. a neural network over
+    /// the whole photo). Report progress through `progress` and stop when it
+    /// says so.
+    fn source(&self, params: &Value, image: ImageMut<'_>, progress: Progress<'_>) -> Result<()> {
+        let _ = (params, image, progress);
+        Err(PluginError::Unsupported)
     }
 
     /// Generate the plugin's mask: one weight per pixel of `source` (0 = not
@@ -160,6 +217,10 @@ impl<P: Plugin + ?Sized> Plugin for std::sync::Arc<P> {
         mask: Option<&[f32]>,
     ) -> Result<()> {
         (**self).apply_masked(params, image, mask)
+    }
+
+    fn source(&self, params: &Value, image: ImageMut<'_>, progress: Progress<'_>) -> Result<()> {
+        (**self).source(params, image, progress)
     }
 
     fn mask(&self, params: &Value, source: Image<'_>) -> Result<Vec<f32>> {

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
-use aperio_plugin::{Host, PluginInfo};
+use aperio_plugin::{Host, PluginInfo, Progress};
 use aperio_plugin_segment::models;
 use aperio_render::export::{export_with_metadata, ExportMetadata};
 use aperio_render::metadata::{Metadata, MetadataPolicy};
@@ -31,7 +31,7 @@ struct AppState {
     renderer: Arc<Mutex<Option<Renderer>>>,
     /// The bundled plugins, shared by the renderer and background work.
     plugins: Plugins,
-    session: Mutex<Option<Session>>,
+    session: Arc<Mutex<Option<Session>>>,
     /// Steps the last preview left out, for the UI to explain.
     skipped: Mutex<Vec<SkippedStep>>,
 }
@@ -87,6 +87,9 @@ struct Session {
     source: PathBuf,
     full: LinearImage,
     preview: LinearImage,
+    /// The preview after the document's source steps (such as denoise),
+    /// which run on the full-size photo, with the steps it was made with.
+    cleaned: Option<(String, LinearImage)>,
     doc: EditDocument,
 }
 
@@ -152,6 +155,7 @@ async fn open_image(path: PathBuf, state: State<'_, AppState>) -> CmdResult<Open
         source,
         full,
         preview,
+        cleaned: None,
         doc,
     });
     Ok(opened)
@@ -206,7 +210,7 @@ async fn render_preview(
     if doc.format != FORMAT_ID || doc.layers.is_empty() {
         return Err("not an Aperio edit document".into());
     }
-    let (mut img, source) = {
+    let (preview, source) = {
         let mut session = state.session.lock().unwrap();
         let session = session.as_mut().ok_or("no photo is open")?;
         session.doc = doc.clone();
@@ -220,7 +224,13 @@ async fn render_preview(
     };
     // A saved edit seen the normal way also becomes the library thumbnail.
     let thumb = save && view.crop && view.mask_overlay.is_none() && !view.before;
+    let session = state.session.clone();
     let (img, skipped) = with_renderer(&state, move |r| {
+        let mut img = if view.before {
+            preview
+        } else {
+            cleaned_preview(r, &session, &doc, preview)
+        };
         let skipped = view::render(r, &doc, view, &mut img);
         (img, skipped)
     })
@@ -232,6 +242,43 @@ async fn render_preview(
     jpeg_bytes(&img, PREVIEW_QUALITY)
         .map(Response::new)
         .map_err(err)
+}
+
+/// The preview after the document's source steps, made from the full-size
+/// photo and kept until the steps change. `preview` itself when there are
+/// none.
+fn cleaned_preview(
+    r: &Renderer,
+    session: &Mutex<Option<Session>>,
+    doc: &EditDocument,
+    preview: LinearImage,
+) -> LinearImage {
+    let steps = r.source_steps(doc);
+    if steps.is_empty() {
+        return preview;
+    }
+    let key = format!("{steps:?}");
+    let full = {
+        let session = session.lock().unwrap();
+        let Some(session) = session.as_ref() else {
+            return preview;
+        };
+        if let Some((k, img)) = &session.cleaned {
+            if *k == key {
+                return img.clone();
+            }
+        }
+        session.full.clone()
+    };
+    let mut full = full;
+    // Steps that can't run are reported by the render that follows, which
+    // sees them as plugin steps it can't render.
+    let _ = r.run_source_steps(doc, &mut full, Progress::none());
+    let cleaned = full.downscale(PREVIEW_EDGE);
+    if let Some(session) = session.lock().unwrap().as_mut() {
+        session.cleaned = Some((key, cleaned.clone()));
+    }
+    cleaned
 }
 
 /// Steps the last preview couldn't render (e.g. an AI model that isn't
@@ -355,7 +402,10 @@ async fn export_image(options: ExportOptions, state: State<'_, AppState>) -> Cmd
     let sharpen = options.sharpen;
     with_renderer(&state, move |r| {
         let started = std::time::Instant::now();
-        let skipped = r.render(&doc, &mut img);
+        let mut skipped = r
+            .run_source_steps(&doc, &mut img, Progress::none())
+            .unwrap_or_default();
+        skipped.extend(r.render(&doc, &mut img));
         let mut img = match long_edge {
             Some(edge) => img.resized(edge),
             None => img,

@@ -43,6 +43,7 @@ impl Plugin for Vignette {
                 params: vec![amount(), midpoint()],
             }),
             mask: None,
+            source: None,
             models: vec![],
         }
     }

@@ -1,5 +1,5 @@
 //! Holds the installed plugins, routes document steps to them, and caches
-//! generated masks.
+//! generated masks and source steps.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
@@ -8,11 +8,18 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use crate::{compatible, Image, ImageMut, Plugin, PluginError, PluginInfo, Result, API_VERSION};
+use crate::{
+    compatible, Image, ImageMut, Plugin, PluginError, PluginInfo, Progress, Result, API_VERSION,
+};
 
 /// Masks kept in memory. A mask is one f32 per pixel, so 16 preview-sized
 /// masks are about 256 MiB at most; full-size ones are evicted first in use.
 const MASK_CACHE_ENTRIES: usize = 16;
+/// Source step results kept in memory. These are full-size photos (a 24 MP
+/// photo is 384 MiB), so only enough for two steps in a row.
+const SOURCE_CACHE_ENTRIES: usize = 2;
+
+type Cache<T> = Mutex<VecDeque<(u64, Arc<T>)>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RegisterError {
@@ -26,7 +33,8 @@ pub enum RegisterError {
 #[derive(Default)]
 pub struct Host {
     plugins: Vec<(PluginInfo, Box<dyn Plugin>)>,
-    masks: Mutex<VecDeque<(u64, Arc<Vec<f32>>)>>,
+    masks: Cache<Vec<f32>>,
+    sources: Cache<Vec<[f32; 4]>>,
 }
 
 impl Host {
@@ -86,6 +94,45 @@ impl Host {
         self.find(id, version)?.apply_masked(params, image, mask)
     }
 
+    /// Whether the installed plugin `id` provides a source step. Steps of
+    /// such plugins run on the full-size photo before any layer, wherever
+    /// they appear in a document.
+    pub fn is_source(&self, id: &str) -> bool {
+        self.plugins
+            .iter()
+            .any(|(info, _)| info.id == id && info.source.is_some())
+    }
+
+    /// Run (or reuse) a plugin's source step on `image` and return the
+    /// resulting pixels.
+    pub fn source(
+        &self,
+        id: &str,
+        version: &str,
+        params: &Value,
+        image: Image<'_>,
+        progress: Progress<'_>,
+    ) -> Result<Arc<Vec<[f32; 4]>>> {
+        let plugin = self.find(id, version)?;
+        let key = cache_key(id, version, params, image);
+        if let Some(hit) = find(&self.sources, key) {
+            return Ok(hit);
+        }
+        let mut pixels = image.pixels.to_vec();
+        plugin.source(
+            params,
+            ImageMut {
+                width: image.width,
+                height: image.height,
+                pixels: &mut pixels,
+            },
+            progress,
+        )?;
+        let pixels = Arc::new(pixels);
+        insert(&self.sources, SOURCE_CACHE_ENTRIES, key, pixels.clone());
+        Ok(pixels)
+    }
+
     /// Generate (or reuse) a plugin mask for `source`.
     pub fn mask(
         &self,
@@ -96,8 +143,8 @@ impl Host {
     ) -> Result<Arc<Vec<f32>>> {
         let plugin = self.find(id, version)?;
         let key = cache_key(id, version, params, source);
-        if let Some((_, m)) = self.masks.lock().unwrap().iter().find(|(k, _)| *k == key) {
-            return Ok(m.clone());
+        if let Some(hit) = find(&self.masks, key) {
+            return Ok(hit);
         }
         let mask = plugin.mask(params, source)?;
         let expected = source.width as usize * source.height as usize;
@@ -110,16 +157,28 @@ impl Host {
             )));
         }
         let mask = Arc::new(mask);
-        let mut cache = self.masks.lock().unwrap();
-        if cache.len() == MASK_CACHE_ENTRIES {
-            cache.pop_front();
-        }
-        cache.push_back((key, mask.clone()));
+        insert(&self.masks, MASK_CACHE_ENTRIES, key, mask.clone());
         Ok(mask)
     }
 }
 
-/// Identifies a mask request: the plugin, its parameters, and the image
+fn find<T>(cache: &Cache<T>, key: u64) -> Option<Arc<T>> {
+    let cache = cache.lock().unwrap();
+    cache
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v.clone())
+}
+
+fn insert<T>(cache: &Cache<T>, entries: usize, key: u64, value: Arc<T>) {
+    let mut cache = cache.lock().unwrap();
+    if cache.len() == entries {
+        cache.pop_front();
+    }
+    cache.push_back((key, value));
+}
+
+/// Identifies a mask or source request: the plugin, its parameters, and the image
 /// (its size plus a sample of its pixels, which is enough to tell photos and
 /// preview sizes apart without hashing every pixel).
 fn cache_key(id: &str, version: &str, params: &Value, source: Image<'_>) -> u64 {
@@ -159,6 +218,7 @@ mod tests {
                     params: vec![],
                 }),
                 mask: None,
+                source: None,
                 models: vec![],
             }
         }
