@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <!-- Background of the macOS .dmg window. Finder puts the Aperio icon at
+       (180, 170) and the Applications shortcut at (480, 170), as set in
+       tauri.conf.json; the arrow runs between them. background.png is this file rendered at
+       660x400 by a browser (the window has no Retina variant). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f4ef"/>
+      <stop offset="1" stop-color="#ece7de"/>
+    </linearGradient>
+    <marker id="head" viewBox="0 0 12 12" refX="6" refY="6" markerWidth="16" markerHeight="16"
+            markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#c9861f"/>
+    </marker>
+  </defs>
+  <rect width="660" height="400" fill="url(#bg)"/>
+  <text x="330" y="52" text-anchor="middle" font-family="Inter, -apple-system, Helvetica, sans-serif"
+        font-size="22" font-weight="600" fill="#2a2620">Install Aperio</text>
+  <path d="M262 160 Q330 112 392 160" fill="none" stroke="#c9861f" stroke-width="5"
+        stroke-linecap="round" stroke-dasharray="1 11" marker-end="url(#head)"/>
+  <text x="330" y="318" text-anchor="middle" font-family="Inter, -apple-system, Helvetica, sans-serif"
+        font-size="16" font-weight="500" fill="#2a2620">Drag Aperio onto the Applications folder</text>
+  <text x="330" y="342" text-anchor="middle" font-family="Inter, -apple-system, Helvetica, sans-serif"
+        font-size="13" fill="#6b6459">Then open it from Applications or Launchpad</text>
+</svg>

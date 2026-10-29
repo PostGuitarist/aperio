@@ -155,7 +155,33 @@ jobs:
       - name: Build installers
         working-directory: app
         shell: bash
+        env:
+          # Lay out the .dmg window (background, arrow, Applications
+          # shortcut). Tauri skips that on CI unless told otherwise.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+          # Signs and notarizes the Mac app when these repository secrets are
+          # set (see docs/signing.md). Without them it's ad-hoc signed and
+          # macOS asks the user to approve it the first time.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # A missing secret arrives as an empty string, which Tauri would
+          # take as a real (empty) identity or login, so drop those.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          if [ "$RUNNER_OS" = macOS ]; then
+            if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+              echo "Signing as $APPLE_SIGNING_IDENTITY"
+              [ -n "${APPLE_ID:-}" ] && echo "Notarizing with Apple ID" || echo "::warning::No APPLE_ID secret, so the app won't be notarized"
+            else
+              echo "::warning::No Apple signing secrets, so the Mac app is ad-hoc signed and macOS will ask users to approve it"
+            fi
+          fi
           if [ "$RUNNER_OS" = Windows ]; then
             # The installer ships the DirectML.dll that ONNX Runtime put in
             # target/release. Bundling it straight from there fails, because
