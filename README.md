@@ -51,6 +51,21 @@ cargo run --release -p aperio-cli -- plugins   # list bundled plugins
 
 To write a plugin, see [docs/plugins.md](docs/plugins.md).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). The macOS app is signed with the maintainer's Apple Developer ID.
+
+Only installers built by this repository's [Release workflow](.github/workflows/release.yml) on GitHub-hosted runners, from source in this repository, are signed. How signing is set up is in [docs/signing.md](docs/signing.md).
+
+- Committers and reviewers: [@PostGuitarist](https://github.com/PostGuitarist)
+- Approvers: [@PostGuitarist](https://github.com/PostGuitarist)
+
+Every change from someone outside the team is reviewed before it's merged, and every signing request is approved by hand.
+
+## Privacy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only network access is downloading the AI models (from GitHub and Hugging Face), when you ask Aperio to.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE).

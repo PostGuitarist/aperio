@@ -8,7 +8,7 @@ This guide takes you from installing Aperio to exporting your first edited photo
 
 Download the installer for your system from the [Releases](https://github.com/PostGuitarist/aperio/releases) page. Builds aren't signed with a paid developer certificate yet, so your system warns you the first time:
 
-- **macOS (Apple Silicon):** open the `.dmg` and drag Aperio to Applications. The first time you open it, macOS says it can't verify the app. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
+- **macOS (Apple Silicon):** open the `.dmg` and drag the Aperio icon onto the Applications folder next to it. The first time you open Aperio, macOS says it can't verify the app: click **Done**, go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. If macOS instead says Aperio "is damaged and can't be opened", run `xattr -dr com.apple.quarantine /Applications/Aperio.app` in Terminal and open it again.
 - **Windows (64-bit):** run the `-setup.exe` or the `.msi`. If SmartScreen appears, click **More info → Run anyway**.
 - **Linux:** make the `.AppImage` executable and run it, or install the `.deb` or `.rpm`. You need glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or later).
 

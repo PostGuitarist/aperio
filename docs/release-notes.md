@@ -27,7 +27,7 @@ Sidecars from 0.1 open unchanged, and a 0.1 sidecar edited in 0.2 still opens in
 
 These builds aren't signed with a paid developer certificate yet, so your system will warn you the first time.
 
-- **macOS (Apple Silicon):** open the `.dmg` and drag Aperio to Applications. The first time, macOS says it can't verify the app: open **System Settings → Privacy & Security** and click **Open Anyway**.
+- **macOS (Apple Silicon):** open the `.dmg` and drag the Aperio icon onto the Applications folder next to it. The first time you open Aperio, macOS says it can't verify the app: click **Done**, open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. If macOS says Aperio "is damaged" instead, run `xattr -dr com.apple.quarantine /Applications/Aperio.app` in Terminal.
 - **Windows (64-bit):** run the `-setup.exe` (or the `.msi`). If SmartScreen appears, click **More info → Run anyway**.
 - **Linux:** use the `.AppImage` (make it executable and run it), the `.deb`, or the `.rpm`. It needs glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 or later).
 
