@@ -1,6 +1,6 @@
 # Signing the installers
 
-The Release workflow (`.github/workflows/release.yml`) signs the Mac app when the signing secrets below are set on the repository. Without them it still builds, but the app is only ad-hoc signed, so macOS asks users to approve it in **System Settings → Privacy & Security** the first time they open it.
+The Release workflow (`.github/workflows/release.yml`) signs the Mac app and the Windows installers once the secrets below are set on the repository. Without them it still builds: the Mac app is only ad-hoc signed, so macOS asks users to approve it in **System Settings → Privacy & Security** the first time they open it, and Windows shows a SmartScreen warning.
 
 ## macOS
 
@@ -24,4 +24,38 @@ The next release run imports the certificate into a temporary keychain, signs th
 
 ## Windows
 
-The Windows installers aren't signed yet. Signing alone doesn't stop SmartScreen's "Windows protected your PC" warning straight away: SmartScreen trusts a publisher once enough people have installed its signed files, so the warning fades over the first few releases.
+The Windows installers are signed by [SignPath Foundation](https://signpath.org), which signs open-source projects for free. Until it's set up, the release workflow skips signing and publishes them unsigned.
+
+Signing doesn't stop SmartScreen's "Windows protected your PC" warning straight away: SmartScreen trusts a publisher once enough people have installed its signed files, so the warning fades over the first few releases.
+
+1. **Apply** at [signpath.org/apply](https://signpath.org/apply). SignPath checks the project against [its terms](https://signpath.org/terms); the README's [code signing policy](../README.md#code-signing-policy) is the page they ask for.
+2. **Once approved**, in the SignPath project, add an artifact configuration that signs the installers inside the zip the workflow uploads, and make it the default:
+
+   ```xml
+   <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+     <zip-file>
+       <directory path="nsis">
+         <pe-file path="*.exe" max-matches="unbounded">
+           <authenticode-sign/>
+         </pe-file>
+       </directory>
+       <directory path="msi">
+         <msi-file path="*.msi" max-matches="unbounded">
+           <authenticode-sign/>
+         </msi-file>
+       </directory>
+     </zip-file>
+   </artifact-configuration>
+   ```
+
+   Link the project to this repository as a GitHub trusted build system.
+3. **Add to the repository**, in **Settings → Secrets and variables → Actions**:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `SIGNPATH_API_TOKEN` | secret | an API token for a SignPath user that can submit signing requests |
+   | `SIGNPATH_ORGANIZATION_ID` | variable | your SignPath organization ID |
+   | `SIGNPATH_PROJECT_SLUG` | variable | the project's slug, e.g. `aperio` |
+   | `SIGNPATH_SIGNING_POLICY_SLUG` | variable | `release-signing` |
+
+From then on, each release run sends the Windows installers to SignPath after the builds finish. SignPath asks you to approve the request on signpath.io, and the run waits up to an hour for that. If signing fails or isn't approved in time, the release isn't published, so an unsigned build never goes out by accident; run it again to retry.

@@ -216,11 +216,54 @@ jobs:
             target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
 
+  # Signs the Windows installers through SignPath Foundation's free signing
+  # for open-source projects, once the SIGNPATH_* repository variables and
+  # the SIGNPATH_API_TOKEN secret are set (see docs/signing.md). SignPath
+  # waits for the request to be approved on signpath.io before it signs.
+  sign-windows:
+    needs: build
+    if: vars.SIGNPATH_ORGANIZATION_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Find the unsigned Windows installers
+        id: unsigned
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name == "installers-Windows") | .id')
+          echo "artifact-id=$id" >> "$GITHUB_OUTPUT"
+      - uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # Leaves an hour to approve the request on signpath.io.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-Windows
+          if-no-files-found: error
+          retention-days: 1
+          path: signed
+
   # Publishes one release with every platform's installers, once all three
-  # builds have passed. The description is docs/release-notes.md followed by
-  # GitHub's list of merged pull requests since the previous release.
+  # builds have passed (and the Windows signing, when it's set up). The
+  # description is docs/release-notes.md followed by GitHub's list of merged
+  # pull requests since the previous release.
   release:
-    needs: [prepare, build]
+    needs: [prepare, build, sign-windows]
+    # Runs when signing is skipped because it isn't set up, but not when it
+    # failed, so unsigned Windows installers never replace signed ones.
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign-windows.result != 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -231,7 +274,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: installers
+          pattern: installers-*
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.sign-windows.result == 'success'
+        with:
+          name: signed-Windows
+          path: signed
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -244,6 +293,8 @@ jobs:
           # gather the files into one flat folder first.
           mkdir release
           find installers -type f -exec mv -t release {} +
+          # The signed Windows installers replace the unsigned ones.
+          if [ -d signed ]; then find signed -type f -exec mv -f -t release {} +; fi
           ls -l release
           ( cd release && sha256sum * > SHA256SUMS.txt )
           if gh release view "$TAG" > /dev/null 2>&1; then
