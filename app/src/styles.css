@@ -1229,3 +1229,34 @@ ul.folders .none {
   height: 42px;
   font-weight: 600;
 }
+
+.ai-setup {
+  margin: 16px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-setup[hidden] {
+  display: none;
+}
+
+.ai-setup p {
+  margin: 0 0 10px;
+}
+
+details.ai-models {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+details.ai-models summary {
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: 8px;
+}
