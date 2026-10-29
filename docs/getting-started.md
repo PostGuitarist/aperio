@@ -52,9 +52,9 @@ Drag the handles on the photo to place the mask. While a layer is selected, the 
 
 Open the **AI** tab (A). The first time, click **Download models**. That's about 520 MB, including the denoise model, downloaded once and checked before use. The models run on your computer, and your photos never leave it.
 
-Then click **+ Sky**, **+ Subject**, or **+ Background**. Each adds a layer masked to that part of the photo. Aperio starts working out these masks in the background as soon as a photo opens, so they're usually ready when you click. Tick **Show mask overlay** in the Layers tab to see exactly what's selected, and **Invert** to flip it.
+Then, under **Select**, click **Sky**, **Subject**, or **Background**. Each adds a layer masked to that part of the photo. Aperio starts working out these masks in the background as soon as a photo opens, so they're usually ready when you click. Tick **Show mask overlay** in the Layers tab to see exactly what's selected, and **Invert** to flip it.
 
-**Faster subject masks (optional).** The standard subject model takes 15–20 seconds on a typical CPU. Under the AI tab you can also download a fast subject model, which takes about 1.5 seconds with slightly softer edges. Read the note next to it first: its weights don't state a license and were trained on data licensed for non-commercial research only. Once it's downloaded, subject layers get a **Best / Fast** switch.
+**Faster subject masks (optional).** The standard subject model takes 15–20 seconds on a typical CPU. Open **Models** at the bottom of the AI tab to download a fast subject model, which takes about 1.5 seconds with slightly softer edges. Read the note next to it first: its weights don't state a license and were trained on data licensed for non-commercial research only. Once it's downloaded, subject layers get a **Best / Fast** switch.
 
 ## 6. Replace the sky
 
