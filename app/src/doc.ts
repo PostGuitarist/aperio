@@ -87,6 +87,14 @@ export interface EditDocument {
   version: number;
   source: { file_name: string; size_bytes: number; sha256?: string };
   layers: Layer[];
+  /** Named copies of `layers` to come back to. Left out when empty. */
+  snapshots?: Snapshot[];
+}
+
+export interface Snapshot {
+  name: string;
+  created_ms: number;
+  layers: Layer[];
 }
 
 export type CropOp = Extract<Operation, { op: "crop" }>;

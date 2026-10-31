@@ -57,6 +57,7 @@ Keeping the original extension means `IMG_0001.CR3` and `IMG_0001.JPG` from the 
 | `version` | Schema version. Readers reject versions newer than they support and upgrade older ones. |
 | `source.file_name` | Original file name only, so the pair survives a folder move. |
 | `source.size_bytes`, `source.sha256` | Used to warn when the original has been replaced. `sha256` is optional. |
+| `snapshots` | Optional, left out when empty. Named versions of the edit: each has a `name`, `created_ms` (milliseconds since the Unix epoch), and its own `layers`, in the same form as the top-level `layers`. Snapshots are never rendered. |
 | `layers` | Applied bottom to top. Each layer runs its operations on the result of the layers below, then blends that back in by mask × opacity. The first layer works on the decoded source image. |
 | `layers[].enabled`, `opacity` | Default to `true` and `1.0` when missing. |
 | `layers[].blend_mode` | Optional, `normal` when missing (and not written then). One of `normal`, `multiply`, `screen`, `overlay`, `soft_light`, `color`, `luminosity`. The layer's result is combined with what's below in this mode, then blended in by mask × opacity. Multiply, screen, overlay, and soft light work on sRGB-encoded values; color keeps the brightness below and takes the layer's color, and luminosity does the opposite. With a mode other than `normal`, a layer with no operations still changes the photo. |
@@ -98,6 +99,24 @@ Each mask has a `kind` tag. Coordinates are normalized (0–1) to the uncropped 
 Luminance and color masks, like plugin masks, are read from the photo before any layer's adjustments, so editing a layer never changes what a range mask selects.
 
 Plugin masks store only their inputs. The generated mask is cached elsewhere and rebuilt when missing, so sidecars stay small and readable. The AI masks keep their network outputs in the user's cache folder (for example `~/Library/Caches/aperio/masks` on macOS, `~/.cache/aperio/masks` on Linux), up to 512 MB, so a photo opened again later doesn't wait for the network. Deleting that folder is always safe.
+
+## Presets
+
+User presets are separate files, one per preset, named `<name>.aperio-preset.json` in Aperio's config folder (for example `~/.config/aperio/presets` on Linux, `~/Library/Application Support/aperio/presets` on macOS):
+
+```json
+{
+  "format": "aperio.preset",
+  "version": 1,
+  "name": "Golden hour",
+  "operations": [
+    { "op": "white_balance", "temperature_k": 8000, "tint": 0.03 },
+    { "op": "color", "saturation": 0.0, "vibrance": 0.15 }
+  ]
+}
+```
+
+`operations` uses the same operation objects as a layer. Applying a preset replaces the layer's operations of the same kind (one per kind, and one curve per channel) and keeps everything else. Crop and plugin operations are never saved in a preset.
 
 ## Compatibility rules
 

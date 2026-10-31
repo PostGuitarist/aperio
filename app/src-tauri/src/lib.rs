@@ -1,5 +1,6 @@
 mod clean;
 mod library;
+mod presets;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -133,6 +134,21 @@ fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         sidecar_format_version: aperio_core::document::FORMAT_VERSION,
     }
+}
+
+#[tauri::command]
+fn list_presets() -> Vec<presets::Preset> {
+    presets::list(&presets::dir())
+}
+
+#[tauri::command]
+fn save_preset(preset: presets::Preset) -> CmdResult<()> {
+    presets::save(&presets::dir(), preset).map_err(err)
+}
+
+#[tauri::command]
+fn delete_preset(name: String) -> CmdResult<()> {
+    presets::delete(&presets::dir(), &name).map_err(err)
 }
 
 /// A photo passed on the command line (e.g. "Open with Aperio"), if any.
@@ -585,7 +601,10 @@ pub fn run() {
             export_image,
             renderer_info,
             models_status,
-            download_models
+            download_models,
+            list_presets,
+            save_preset,
+            delete_preset
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aperio");
