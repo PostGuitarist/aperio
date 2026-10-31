@@ -3,7 +3,7 @@
 // uncropped photo (the document stores them normalized) and mapped to the
 // screen through whatever crop the shown preview has.
 
-import { type CropOp, type Mask, type Point, clamp01, readCrop, writeCrop } from "./doc";
+import { type CropOp, type Mask, type Point, activeMask, clamp01, readCrop, writeCrop } from "./doc";
 import { changed, commit, editor, refresh } from "./state";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -189,7 +189,7 @@ export class Overlay {
 
   private layerMask(): Mask | undefined {
     if (editor.tab === "crop" || editor.before || editor.selected === 0) return undefined;
-    return editor.doc.layers[editor.selected]?.mask;
+    return activeMask(editor.doc.layers[editor.selected]?.mask, editor.part);
   }
 
   draw() {
@@ -197,6 +197,7 @@ export class Overlay {
     svg.replaceChildren();
     const f = this.frame;
     svg.classList.toggle("brush", false);
+    svg.classList.toggle("picking", !!editor.picking);
     // Mask guides run past the photo's edge and are clipped; crop handles
     // sit on the edge and need to show in full.
     svg.classList.toggle("cropping", editor.tab === "crop");
@@ -224,6 +225,15 @@ export class Overlay {
 
   private down(e: PointerEvent) {
     if (!this.frame) return;
+    if (editor.picking) {
+      e.preventDefault();
+      const r = this.svg.getBoundingClientRect();
+      const pick = editor.picking;
+      editor.picking = null;
+      this.svg.classList.remove("picking");
+      pick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      return;
+    }
     const mask = this.layerMask();
     if (mask?.kind === "brush") {
       e.preventDefault();

@@ -4,8 +4,8 @@ use aperio_core::{EditDocument, Mask};
 use aperio_plugin::{Host, Image, ImageMut, PluginError, Progress};
 use rayon::prelude::*;
 
-use crate::adjust::{blend, compile, LayerProgram, PluginStep, Program, Skipped};
-use crate::masks::MaskCache;
+use crate::adjust::{blend_code, compile, composite, LayerProgram, PluginStep, Program, Skipped};
+use crate::masks::{self, MaskCache};
 use crate::presence::{self, PRESENCE_STEP};
 use crate::{Error, LinearImage, Result};
 
@@ -48,7 +48,8 @@ struct Params {
     op_count: u32,
     has_mask: u32,
     opacity: f32,
-    _pad: [f32; 3],
+    blend: u32,
+    _pad: [f32; 2],
 }
 
 // SAFETY: 4-byte scalars only, no implicit padding.
@@ -183,27 +184,22 @@ impl Renderer {
         // photo without adjustments.
         let mut layers: Vec<Prepared> = Vec::new();
         for layer in std::mem::take(&mut program.layers) {
-            if layer.opacity <= 0.0 || (layer.op_count == 0 && layer.plugin_steps.is_empty()) {
+            if layer.opacity <= 0.0 || is_empty(&layer) {
                 continue;
             }
             let mask = match &layer.mask {
                 None => None,
-                Some(Mask::Plugin {
-                    plugin,
-                    version,
-                    params,
-                }) => match self.plugin_mask(plugin, version, params, img) {
+                Some(m) => match self.mask_weights(m, img) {
                     Ok(m) => Some(m),
-                    Err(reason) => {
+                    Err((op, reason)) => {
                         skipped.push(Skipped {
                             layer: layer.index,
-                            op: plugin.clone(),
+                            op,
                             reason: format!("mask left out: {reason}"),
                         });
                         continue;
                     }
                 },
-                Some(m) => self.drawn_mask(m, img.width, img.height),
             };
             layers.push((layer, mask));
         }
@@ -229,6 +225,41 @@ impl Renderer {
             *img = img.crop(rect);
         }
         skipped
+    }
+
+    /// Weights for any mask, read from `source` where the mask needs the
+    /// photo (plugin and range masks). On failure, returns the plugin that
+    /// failed and why.
+    pub fn mask_weights(
+        &self,
+        mask: &Mask,
+        source: &LinearImage,
+    ) -> std::result::Result<Arc<Vec<f32>>, (String, String)> {
+        match mask {
+            Mask::Plugin {
+                plugin,
+                version,
+                params,
+            } => self
+                .plugin_mask(plugin, version, params, source)
+                .map_err(|reason| (plugin.clone(), reason)),
+            Mask::Luminance { .. } | Mask::Color { .. } => Ok(Arc::new(
+                masks::range(mask, &source.pixels).expect("a range mask"),
+            )),
+            Mask::Combine { parts } => {
+                let mut out = None;
+                for part in parts {
+                    let w = self.mask_weights(&part.mask, source)?;
+                    masks::combine(&mut out, part, &w);
+                }
+                Ok(Arc::new(
+                    out.unwrap_or_else(|| vec![0.0; source.pixels.len()]),
+                ))
+            }
+            m => Ok(self
+                .drawn_mask(m, source.width, source.height)
+                .expect("a drawn mask")),
+        }
     }
 
     fn plugin_mask(
@@ -313,14 +344,17 @@ impl Renderer {
             .for_each(|(i, (px, new))| {
                 let w = layer.opacity * mask.map_or(1.0, |m| m[i]);
                 if w > 0.0 {
-                    *px = blend(*px, *new, w);
+                    *px = composite(layer.blend_mode, *px, *new, w);
                 }
             });
     }
 
     /// Run layers' per-pixel steps, each blended through its mask.
     fn run_layers(&self, program: &Program, layers: &[Prepared], pixels: &mut [[f32; 4]]) {
-        if layers.iter().all(|(l, _)| l.op_count == 0) {
+        if layers
+            .iter()
+            .all(|(l, _)| l.op_count == 0 && l.blend_mode.is_normal())
+        {
             return;
         }
         match &self.gpu {
@@ -330,13 +364,21 @@ impl Renderer {
                     pixels.par_iter_mut().enumerate().for_each(|(i, px)| {
                         let w = layer.opacity * mask.as_ref().map_or(1.0, |m| m[i]);
                         if w > 0.0 {
-                            *px = blend(*px, program.apply_layer(layer, *px), w);
+                            let new = program.apply_layer(layer, *px);
+                            *px = composite(layer.blend_mode, *px, new, w);
                         }
                     });
                 }
             }
         }
     }
+}
+
+/// A layer that would leave the photo as it is. With a blend mode other than
+/// normal, even a layer with no adjustments changes the photo (screen
+/// brightens it, for example).
+fn is_empty(layer: &LayerProgram) -> bool {
+    layer.op_count == 0 && layer.plugin_steps.is_empty() && layer.blend_mode.is_normal()
 }
 
 impl Default for Renderer {
@@ -466,7 +508,8 @@ impl Gpu {
                             op_count: layer.op_count as u32,
                             has_mask: mask.is_some() as u32,
                             opacity: layer.opacity,
-                            _pad: [0.0; 3],
+                            blend: blend_code(layer.blend_mode),
+                            _pad: [0.0; 2],
                         }),
                         usage: wgpu::BufferUsages::UNIFORM,
                     });
@@ -679,6 +722,113 @@ mod tests {
                 assert!((x[c] - y[c]).abs() < 1e-4, "{x:?} vs {y:?}");
             }
         }
+    }
+
+    #[test]
+    fn blend_modes_and_range_masks_match_cpu_on_gpu() {
+        use aperio_core::mask::{MaskMode, MaskPart};
+        use aperio_core::BlendMode;
+        let gpu = match Renderer::gpu() {
+            Ok(gpu) => gpu,
+            Err(e) if std::env::var_os("APERIO_REQUIRE_GPU").is_none() => {
+                eprintln!("skipping: {e}");
+                return;
+            }
+            Err(e) => panic!("{e}"),
+        };
+        let modes = [
+            BlendMode::Multiply,
+            BlendMode::Screen,
+            BlendMode::Overlay,
+            BlendMode::SoftLight,
+            BlendMode::Color,
+            BlendMode::Luminosity,
+        ];
+        let mut d = doc();
+        for (i, mode) in modes.into_iter().enumerate() {
+            let mut l = Layer::new(format!("{mode:?}"));
+            l.blend_mode = mode;
+            l.opacity = 0.7;
+            l.operations = vec![
+                Operation::Exposure {
+                    ev: 0.3 - i as f32 * 0.2,
+                },
+                Operation::Color {
+                    saturation: 0.4,
+                    vibrance: 0.0,
+                },
+            ];
+            l.mask = Some(match i % 3 {
+                0 => Mask::Luminance {
+                    low: 0.2,
+                    high: 0.6,
+                    feather: 0.2,
+                },
+                1 => Mask::Color {
+                    hue: 200.0,
+                    range: 30.0,
+                    feather: 30.0,
+                },
+                _ => Mask::Combine {
+                    parts: vec![
+                        MaskPart {
+                            mode: MaskMode::Add,
+                            invert: false,
+                            mask: Mask::Linear {
+                                start: [0.0, 0.0],
+                                end: [0.0, 1.0],
+                            },
+                        },
+                        MaskPart {
+                            mode: MaskMode::Intersect,
+                            invert: true,
+                            mask: Mask::Luminance {
+                                low: 0.7,
+                                high: 1.0,
+                                feather: 0.1,
+                            },
+                        },
+                    ],
+                },
+            });
+            d.layers.push(l);
+        }
+        // An empty layer in screen mode still brightens.
+        let mut screen = Layer::new("Screen");
+        screen.blend_mode = BlendMode::Screen;
+        screen.opacity = 0.3;
+        d.layers.push(screen);
+
+        let mut a = gradient(64);
+        let before = a.clone();
+        let mut b = a.clone();
+        assert!(gpu.render(&d, &mut a).is_empty());
+        Renderer::cpu().render(&d, &mut b);
+        for (x, y) in a.pixels.iter().zip(&b.pixels) {
+            for c in 0..4 {
+                assert!((x[c] - y[c]).abs() < 1e-3, "{x:?} vs {y:?}");
+            }
+        }
+        assert_ne!(a, before);
+    }
+
+    #[test]
+    fn screen_brightens_and_multiply_darkens() {
+        use aperio_core::BlendMode;
+        let render = |mode| {
+            let mut d = doc();
+            d.layers[0].operations.clear();
+            let mut l = Layer::new("Mode");
+            l.blend_mode = mode;
+            d.layers.push(l);
+            let mut img = LinearImage::new(1, 1, vec![[0.2, 0.2, 0.2, 1.0]]);
+            Renderer::cpu().render(&d, &mut img);
+            img.pixels[0][0]
+        };
+        assert!(render(BlendMode::Screen) > 0.25);
+        assert!(render(BlendMode::Multiply) < 0.15);
+        assert!((render(BlendMode::Normal) - 0.2).abs() < 1e-6);
+        assert!((render(BlendMode::Luminosity) - 0.2).abs() < 1e-5);
     }
 
     /// Test plugin: its mask selects the left half of the image; its

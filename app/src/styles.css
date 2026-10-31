@@ -642,6 +642,23 @@ ul.layers .kind.brush {
     #2c2f35;
 }
 
+ul.layers .kind.luminance,
+ul.mask-parts .kind.luminance {
+  background: linear-gradient(90deg, #15171b, #e8e8e8);
+}
+
+ul.layers .kind.color,
+ul.mask-parts .kind.color {
+  background: conic-gradient(from 90deg, #d65a4a, #d6c24a, #5ac26a, #4ab4d6, #6a5ad6, #d64aa8, #d65a4a);
+}
+
+ul.layers .kind.combine {
+  background:
+    radial-gradient(circle at 38% 50%, rgb(224 82 74 / 0.85) 0 30%, transparent 31%),
+    radial-gradient(circle at 62% 50%, rgb(224 82 74 / 0.55) 0 30%, transparent 31%),
+    #2c2f35;
+}
+
 ul.layers .kind.plugin {
   background: radial-gradient(circle at 30% 30%, #f2b24c 0 12%, transparent 13%), linear-gradient(160deg, #5d8fe0, #2c2f35);
 }
@@ -2046,4 +2063,167 @@ button.band-dot.changed::after {
 
 .wheel-values {
   font-size: 10px;
+}
+
+/* --- Mask parts and blend modes -------------------------------------------- */
+
+.row.wrap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.layer-props .field {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  color: var(--muted);
+}
+
+.layer-props select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.layer-props h4.sub {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+ul.mask-parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+ul.mask-parts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+ul.mask-parts li:last-child {
+  border-bottom: none;
+}
+
+ul.mask-parts li.selected {
+  background: var(--raised);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+ul.mask-parts .kind {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  background: #3a3d45;
+}
+
+ul.mask-parts .kind.linear {
+  background: linear-gradient(180deg, var(--mask), #2c2f35);
+}
+
+ul.mask-parts .kind.radial {
+  background: radial-gradient(circle, var(--mask) 30%, #2c2f35 70%);
+}
+
+ul.mask-parts .kind.brush {
+  background: radial-gradient(circle at 40% 45%, var(--mask) 0 30%, transparent 40%), #2c2f35;
+}
+
+ul.mask-parts .label {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+ul.mask-parts .label strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+ul.mask-parts select {
+  flex: none;
+  width: 108px;
+}
+
+ul.mask-parts select:disabled {
+  visibility: hidden;
+}
+
+.chip {
+  flex: none;
+  height: 22px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+ul.mask-parts .chip {
+  font-size: 14px;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mask-combine {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+
+.mask-combine select {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.mask-combine button {
+  padding: 0 8px;
+  height: 28px;
+  font-size: 12px;
+}
+
+button.pick {
+  width: 100%;
+  margin: 4px 0 8px;
+}
+
+button.pick.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#overlay.picking {
+  cursor: crosshair;
 }

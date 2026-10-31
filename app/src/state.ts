@@ -2,7 +2,7 @@
 // and call `changed()`; the preview catches up with the latest change.
 
 import { invoke } from "@tauri-apps/api/core";
-import { type Channel, type CropOp, type EditDocument, readCrop } from "./doc";
+import { type Channel, type CropOp, type EditDocument, maskLabel, readCrop } from "./doc";
 
 export type Tab = "edit" | "crop" | "layers" | "ai" | "info";
 export type Compare = "off" | "split" | "side";
@@ -31,6 +31,10 @@ export const editor = {
   path: null as string | null,
   doc: null as unknown as EditDocument,
   selected: 0,
+  /** Which part of the selected layer's combined mask is being edited. */
+  part: 0,
+  /** Set while the color range eyedropper waits for a click on the photo. */
+  picking: null as ((u: number, v: number) => void) | null,
   tab: "edit" as Tab,
   channel: "rgb" as Channel,
   before: false,
@@ -164,7 +168,16 @@ export function describeChange(before: EditDocument, after: EditDocument): strin
     const where = i === 0 ? "" : `${b.name} · `;
     if (a.enabled !== b.enabled) return `${b.enabled ? "Show" : "Hide"} ${b.name}`;
     if (a.opacity !== b.opacity) return `${where}Opacity ${Math.round(b.opacity * 100)}%`;
-    if (JSON.stringify(a.mask) !== JSON.stringify(b.mask)) return `${where}Edit mask`;
+    if ((a.blend_mode ?? "normal") !== (b.blend_mode ?? "normal")) return `${where}Blend ${(b.blend_mode ?? "normal").replace("_", " ")}`;
+    if (JSON.stringify(a.mask) !== JSON.stringify(b.mask)) {
+      const parts = (l: typeof a) => (l.mask?.kind === "combine" ? l.mask.parts.length : l.mask ? 1 : 0);
+      if (parts(b) > parts(a) && b.mask?.kind === "combine") {
+        const added = b.mask.parts[b.mask.parts.length - 1];
+        return `${where}${{ add: "Add", subtract: "Subtract", intersect: "Intersect" }[added.mode]} ${maskLabel(added.mask).split(" ·")[0].toLowerCase()} mask`;
+      }
+      if (parts(b) < parts(a)) return `${where}Remove mask part`;
+      return `${where}Edit mask`;
+    }
     const names = new Set<string>();
     const ops = (l: typeof a) => new Map(l.operations.map((o) => [o.op === "curve" ? `curve:${o.channel}` : o.op === "plugin" ? `plugin:${o.plugin}` : o.op, JSON.stringify(o)]));
     const [oa, ob] = [ops(a), ops(b)];

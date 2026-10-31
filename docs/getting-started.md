@@ -59,8 +59,12 @@ Masks let you adjust one part of the photo. Each mask lives on its own **layer**
 - **Brush** (B): paint where the layer applies, or erase.
 - **Gradient** (G): a linear fade, such as darkening a bright sky.
 - **Radial** (R): an ellipse, such as lifting a face or a flower.
+- **Luminance**: a range of brightness, such as only the highlights.
+- **Color range**: a range of hues, such as the blue of the sky. **Pick a color from the photo** sets it from a click.
 
 Drag the handles on the photo to place the mask. While a layer is selected, the Edit tab changes that layer only.
+
+To refine a mask, pick a kind under the mask parts and click **Add**, **Subtract**, or **Intersect**. For example, intersect a gradient with a luminance range to darken only the bright part of the sky. Click a part to edit it, and use **◐** to invert one part. Each layer also has a **Blend** mode (multiply, screen, overlay, soft light, color, or luminosity); a soft light layer with no adjustments adds contrast on its own.
 
 ![A subject layer, with its AI mask shown in red](images/layers-subject.jpg)
 

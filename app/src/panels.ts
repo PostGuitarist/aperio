@@ -3,12 +3,15 @@
 
 import {
   type Adjustments,
+  type BlendMode,
   type Channel,
   type Layer,
   type Mask,
   type Point,
+  BLEND_MODES,
   IDENTITY,
   NEUTRAL,
+  activeMask,
   bake,
   maskLabel,
   readAdjustments,
@@ -20,6 +23,7 @@ import {
 } from "./doc";
 import { DENOISE, buildAi, denoiseControls, pluginLayerControls } from "./ai";
 import { buildGrading, buildMixer, buildPresence } from "./color";
+import { MASK_KINDS, type MaskKind, maskControls, newMask } from "./maskparts";
 import { aspectFor, boxForAspect, currentBox, fitInside, setBox } from "./overlay";
 import { invoke } from "@tauri-apps/api/core";
 import { type Tab, changed, commit, editor, onUpdate, refresh } from "./state";
@@ -420,33 +424,23 @@ function buildCrop(root: HTMLElement) {
 
 // --- Layers ----------------------------------------------------------------------
 
-type NewKind = "brush" | "linear" | "radial";
-
-const KIND_NAMES: Record<NewKind, string> = { brush: "Brush", linear: "Gradient", radial: "Radial" };
-
-export function addLayer(kind: NewKind) {
-  const o = editor.opened;
-  if (!o) return;
-  const r = 0.25 * Math.min(o.preview_width, o.preview_height);
-  const mask: Mask =
-    kind === "brush"
-      ? { kind: "brush", strokes: [] }
-      : kind === "linear"
-        ? { kind: "linear", start: [0.5, 0.15], end: [0.5, 0.5] }
-        : { kind: "radial", center: [0.5, 0.5], radius: [r / o.preview_width, r / o.preview_height], angle_deg: 0, feather: 0.5, invert: false };
+export function addLayer(kind: MaskKind) {
+  if (!editor.opened) return;
+  const name = MASK_KINDS.find(([k]) => k === kind)![1];
   const n = editor.doc.layers.filter((l) => l.mask?.kind === kind).length + 1;
-  const layer: Layer = { name: `${KIND_NAMES[kind]} ${n}`, enabled: true, opacity: 1, mask, operations: [] };
+  const layer: Layer = { name: `${name} ${n}`, enabled: true, opacity: 1, mask: newMask(kind), operations: [] };
   editor.doc.layers.push(layer);
   editor.selected = editor.doc.layers.length - 1;
+  editor.part = 0;
   editor.tab = "layers";
   commit();
 }
 
 function buildLayers(root: HTMLElement) {
   const head = h("div", { className: "group-head" }, h("h3", {}, "Layer stack"));
-  const adds = h("div", { className: "row" });
-  for (const kind of ["brush", "linear", "radial"] as NewKind[]) {
-    const b = h("button", { type: "button", textContent: `+ ${KIND_NAMES[kind]}` });
+  const adds = h("div", { className: "row wrap" });
+  for (const [kind, name] of MASK_KINDS) {
+    const b = h("button", { type: "button", textContent: `+ ${name}` });
     b.addEventListener("click", () => addLayer(kind));
     adds.append(b);
   }
@@ -480,6 +474,7 @@ function buildLayers(root: HTMLElement) {
         row.append(del);
       }
       row.addEventListener("click", () => {
+        if (editor.selected !== i) editor.part = 0;
         editor.selected = i;
         changed();
       });
@@ -498,59 +493,28 @@ function buildLayers(root: HTMLElement) {
     const l = layer();
     const body = group(props, l.name);
     syncProps.push(slider(body, { label: "Opacity", min: 0, max: 100, step: 1, neutral: 100, format: (v) => `${v}%`, get: () => Math.round(layer().opacity * 100), set: (v) => (layer().opacity = v / 100) }));
-    const mask = l.mask;
-    if (mask?.kind === "radial") {
-      const radial = () => layer().mask as Extract<Mask, { kind: "radial" }>;
-      syncProps.push(slider(body, { label: "Feather", min: 0, max: 100, step: 1, neutral: 50, format: (v) => `${v}%`, get: () => Math.round(radial().feather * 100), set: (v) => (radial().feather = v / 100) }));
-      const invert = h("input", { type: "checkbox" });
-      invert.addEventListener("change", () => {
-        radial().invert = invert.checked;
-        commit();
-      });
-      body.append(h("label", { className: "check" }, invert, "Invert (affect the outside)"));
-      syncProps.push(() => (invert.checked = radial().invert));
-      body.append(h("p", { className: "hint muted" }, "Drag the center to move, and the outer handles to resize and rotate."));
-    } else if (mask?.kind === "linear") {
-      body.append(h("p", { className: "hint muted" }, "Drag the solid handle (full effect) and the hollow one (no effect) on the photo; the small middle handle moves both."));
-    } else if (mask?.kind === "brush") {
-      const b = editor.brush;
-      syncProps.push(slider(body, { label: "Brush size", min: 1, max: 50, step: 0.5, neutral: 8, format: (v) => `${v}%`, get: () => b.size * 100, set: (v) => (b.size = v / 100) }));
-      syncProps.push(slider(body, { label: "Brush feather", min: 0, max: 100, step: 1, neutral: 50, format: (v) => `${v}%`, get: () => Math.round(b.feather * 100), set: (v) => (b.feather = v / 100) }));
-      syncProps.push(slider(body, { label: "Flow", min: 5, max: 100, step: 1, neutral: 100, format: (v) => `${v}%`, get: () => Math.round(b.flow * 100), set: (v) => (b.flow = v / 100) }));
-      const mode = h("div", { className: "segmented" });
-      const paint = h("button", { type: "button", textContent: "Paint" });
-      const erase = h("button", { type: "button", textContent: "Erase" });
-      paint.addEventListener("click", () => ((b.erase = false), refresh()));
-      erase.addEventListener("click", () => ((b.erase = true), refresh()));
-      mode.append(paint, erase);
-      const clear = h("button", { type: "button", className: "link", textContent: "Clear strokes" });
-      clear.addEventListener("click", () => {
-        (layer().mask as Extract<Mask, { kind: "brush" }>).strokes = [];
-        commit();
-      });
-      body.append(mode, clear, h("p", { className: "hint muted" }, "Paint on the photo. Brush settings apply to new strokes."));
-      syncProps.push(() => {
-        paint.classList.toggle("active", !b.erase);
-        erase.classList.toggle("active", b.erase);
-      });
-    }
+    const blend = h("select", { title: "How this layer combines with the layers below" }) as HTMLSelectElement;
+    for (const [value, label] of BLEND_MODES) blend.append(h("option", { value, textContent: label }));
+    blend.addEventListener("change", () => {
+      const mode = blend.value as BlendMode;
+      if (mode === "normal") delete layer().blend_mode;
+      else layer().blend_mode = mode;
+      commit();
+    });
+    body.append(h("label", { className: "field" }, h("span", {}, "Blend"), blend));
+    syncProps.push(() => (blend.value = layer().blend_mode ?? "normal"));
+    syncProps.push(...maskControls(body, layer));
     syncProps.push(pluginLayerControls(body, layer));
-    if (mask && mask.kind !== "plugin") {
-      const show = h("input", { type: "checkbox" });
-      show.addEventListener("change", () => {
-        editor.showMask = show.checked;
-        changed();
-      });
-      body.append(h("label", { className: "check" }, show, "Show mask overlay"));
-      syncProps.push(() => (show.checked = editor.showMask));
-    }
     if (editor.selected > 0) body.append(h("p", { className: "hint muted" }, "The Edit tab changes this layer while it's selected."));
   };
 
   return () => {
     drawList();
     const pluginOps = editor.opened ? layer().operations.filter((o) => o.op === "plugin").length : 0;
-    const key = editor.opened ? `${editor.selected}:${layer().mask?.kind ?? "none"}:${layer().name}:${editor.doc.layers.length}:${pluginOps}` : "";
+    const mask = editor.opened ? layer().mask : undefined;
+    const parts = mask?.kind === "combine" ? mask.parts.map((p) => `${p.mask.kind}/${maskLabel(p.mask)}`).join(",") : "";
+    const active = activeMask(mask, editor.part)?.kind ?? "none";
+    const key = editor.opened ? `${editor.selected}:${mask?.kind ?? "none"}:${parts}:${active}:${layer().name}:${editor.doc.layers.length}:${pluginOps}` : "";
     if (key !== propsKey) {
       propsKey = key;
       buildProps();

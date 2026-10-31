@@ -8,12 +8,15 @@ use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
-use aperio_core::mask::BrushStroke;
+use aperio_core::mask::{BrushStroke, MaskMode, MaskPart};
 use aperio_core::Mask;
 use rayon::prelude::*;
 
+use crate::color::{linear_to_srgb, luminance};
+
 /// Weights for every pixel of a `width` x `height` image, row-major.
-/// Returns `None` for plugin masks, which this renderer can't generate yet.
+/// Returns `None` for masks that need more than the image size: plugin
+/// masks, range masks (see [`range`]), and combined masks.
 pub fn rasterize(mask: &Mask, width: u32, height: u32) -> Option<Vec<f32>> {
     let (w, h) = (width as f32, height as f32);
     let px = |p: [f32; 2]| [p[0] * w, p[1] * h];
@@ -65,9 +68,89 @@ pub fn rasterize(mask: &Mask, width: u32, height: u32) -> Option<Vec<f32>> {
             });
         }
         Mask::Brush { strokes } => return Some(brush(strokes, width, height)),
-        Mask::Plugin { .. } => return None,
+        Mask::Plugin { .. }
+        | Mask::Luminance { .. }
+        | Mask::Color { .. }
+        | Mask::Combine { .. } => return None,
     }
     Some(out)
+}
+
+/// Weights for a luminance or color range mask, read from `pixels`.
+/// `None` for any other kind of mask.
+pub fn range(mask: &Mask, pixels: &[[f32; 4]]) -> Option<Vec<f32>> {
+    let weight: Box<dyn Fn([f32; 3]) -> f32 + Sync> = match *mask {
+        Mask::Luminance { low, high, feather } => {
+            let f = feather.max(0.0);
+            Box::new(move |rgb| {
+                let e = linear_to_srgb(luminance(rgb).clamp(0.0, 1.0));
+                smoothstep(low - f, low, e) * (1.0 - smoothstep(high, high + f, e))
+            })
+        }
+        Mask::Color {
+            hue,
+            range,
+            feather,
+        } => {
+            let (range, feather) = (range.max(0.0), feather.max(0.0));
+            Box::new(move |rgb| {
+                let c = rgb.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
+                let (h, s) = hue_saturation(c);
+                let d = (h - hue).rem_euclid(360.0);
+                let d = d.min(360.0 - d);
+                // Grays have no hue to match, so they fade out with chroma.
+                (1.0 - smoothstep(range, range + feather, d)) * smoothstep(0.04, 0.2, s)
+            })
+        }
+        _ => return None,
+    };
+    Some(
+        pixels
+            .par_iter()
+            .map(|px| weight([px[0], px[1], px[2]]))
+            .collect(),
+    )
+}
+
+/// Hue in degrees and HSV saturation of an sRGB-encoded color.
+fn hue_saturation(c: [f32; 3]) -> (f32, f32) {
+    let mx = c[0].max(c[1]).max(c[2]);
+    let chroma = mx - c[0].min(c[1]).min(c[2]);
+    if chroma <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let h = if mx == c[0] {
+        ((c[1] - c[2]) / chroma).rem_euclid(6.0)
+    } else if mx == c[1] {
+        (c[2] - c[0]) / chroma + 2.0
+    } else {
+        (c[0] - c[1]) / chroma + 4.0
+    };
+    (h * 60.0, chroma / mx)
+}
+
+/// Fold one part of a [`Mask::Combine`] into the weights so far. The first
+/// part (when `out` is still `None`) starts the result whatever its mode.
+pub fn combine(out: &mut Option<Vec<f32>>, part: &MaskPart, weights: &[f32]) {
+    let w = |i: usize| {
+        let v = weights[i].clamp(0.0, 1.0);
+        if part.invert {
+            1.0 - v
+        } else {
+            v
+        }
+    };
+    match out {
+        None => *out = Some((0..weights.len()).map(w).collect()),
+        Some(m) => m.par_iter_mut().enumerate().for_each(|(i, m)| {
+            let p = w(i);
+            *m = match part.mode {
+                MaskMode::Add => *m + p - *m * p,
+                MaskMode::Subtract => *m * (1.0 - p),
+                MaskMode::Intersect => *m * p,
+            };
+        }),
+    }
 }
 
 fn brush(strokes: &[BrushStroke], width: u32, height: u32) -> Vec<f32> {
@@ -99,7 +182,10 @@ impl MaskCache {
     /// Like [`rasterize`], reusing earlier work where it can.
     pub fn rasterize(&self, mask: &Mask, width: u32, height: u32) -> Option<Arc<Vec<f32>>> {
         let key = match mask {
-            Mask::Plugin { .. } => return None,
+            Mask::Plugin { .. }
+            | Mask::Luminance { .. }
+            | Mask::Color { .. }
+            | Mask::Combine { .. } => return None,
             Mask::Brush { strokes } => brush_key(strokes, width, height),
             m => shape_key(m, width, height),
         };
@@ -427,5 +513,80 @@ mod tests {
             params: serde_json::Value::Null,
         };
         assert!(rasterize(&m, 2, 2).is_none());
+    }
+
+    #[test]
+    fn luminance_range_selects_by_brightness() {
+        let grey = |e: f32| {
+            let v = crate::color::srgb_to_linear(e);
+            [v, v, v, 1.0]
+        };
+        let m = Mask::Luminance {
+            low: 0.4,
+            high: 0.6,
+            feather: 0.1,
+        };
+        let w = range(
+            &m,
+            &[grey(0.1), grey(0.35), grey(0.5), grey(0.65), grey(0.9)],
+        )
+        .unwrap();
+        assert_eq!(w[0], 0.0);
+        assert!(w[1] > 0.0 && w[1] < 1.0);
+        assert!((w[2] - 1.0).abs() < 1e-4);
+        assert!(w[3] > 0.0 && w[3] < 1.0);
+        assert_eq!(w[4], 0.0);
+    }
+
+    #[test]
+    fn color_range_selects_hues_and_skips_greys() {
+        let m = Mask::Color {
+            hue: 120.0,
+            range: 20.0,
+            feather: 20.0,
+        };
+        let px = [
+            [0.05, 0.6, 0.05, 1.0], // green
+            [0.05, 0.6, 0.2, 1.0],  // green-aqua, inside the feather
+            [0.6, 0.05, 0.05, 1.0], // red
+            [0.3, 0.3, 0.3, 1.0],   // grey
+        ];
+        let w = range(&m, &px).unwrap();
+        assert!(w[0] > 0.99);
+        assert!(w[1] > 0.0 && w[1] < w[0]);
+        assert_eq!(w[2], 0.0);
+        assert_eq!(w[3], 0.0);
+        // The hue wraps around: 350 degrees is close to red.
+        let red = Mask::Color {
+            hue: 350.0,
+            range: 20.0,
+            feather: 10.0,
+        };
+        assert!(range(&red, &px).unwrap()[2] > 0.99);
+    }
+
+    #[test]
+    fn combine_adds_subtracts_and_intersects() {
+        let part = |mode, invert| MaskPart {
+            mode,
+            invert,
+            mask: Mask::Linear {
+                start: [0.0, 0.0],
+                end: [1.0, 0.0],
+            },
+        };
+        let a = [1.0, 0.5, 0.0];
+        let b = [0.0, 0.5, 1.0];
+        let run = |mode, invert| {
+            let mut out = None;
+            combine(&mut out, &part(MaskMode::Subtract, false), &a);
+            combine(&mut out, &part(mode, invert), &b);
+            out.unwrap()
+        };
+        assert_eq!(run(MaskMode::Add, false), vec![1.0, 0.75, 1.0]);
+        assert_eq!(run(MaskMode::Subtract, false), vec![1.0, 0.25, 0.0]);
+        assert_eq!(run(MaskMode::Intersect, false), vec![0.0, 0.25, 0.0]);
+        // Inverting `b` gives [1, 0.5, 0].
+        assert_eq!(run(MaskMode::Intersect, true), vec![1.0, 0.25, 0.0]);
     }
 }
