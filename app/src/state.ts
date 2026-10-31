@@ -90,13 +90,14 @@ export function changed() {
   requestRender(false);
 }
 
-/** Record a finished change: add it to undo history and save the sidecar. */
-export function commit() {
+/** Record a finished change: add it to undo history and save the sidecar.
+ * `label` names it in the History list, in place of a generated name. */
+export function commit(label?: string) {
   const now = JSON.stringify(editor.doc);
   if (now !== saved) {
     undoStack.push({ json: saved, label: savedLabel });
     redoStack.length = 0;
-    savedLabel = describeChange(JSON.parse(saved) as EditDocument, editor.doc);
+    savedLabel = label ?? describeChange(JSON.parse(saved) as EditDocument, editor.doc);
     saved = now;
   }
   refresh();

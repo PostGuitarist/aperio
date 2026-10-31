@@ -5,6 +5,7 @@ import { activeMask } from "./doc";
 import { buildExport } from "./export";
 import { buildFilmstrip } from "./filmstrip";
 import { buildHistory } from "./history";
+import { buildPresets, buildSnapshots } from "./presets";
 import { buildLibrary } from "./library";
 import { drawClipping, drawHistogram, sampleAt } from "./histogram";
 import { Frame, Overlay } from "./overlay";
@@ -57,6 +58,8 @@ const exif = $<HTMLDivElement>("#exif");
 const overlay = new Overlay($<SVGSVGElement>("#overlay"));
 
 buildPanels($("#tabs"), $("#tab-body"));
+buildPresets($("#side-left"));
+buildSnapshots($("#side-left"));
 buildHistory($("#side-left"));
 $("#command-key").textContent = keyLabel("Ctrl+K");
 

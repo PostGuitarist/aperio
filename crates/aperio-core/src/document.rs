@@ -19,6 +19,19 @@ pub struct EditDocument {
     pub source: SourceRef,
     /// Bottom to top. The first layer is applied to the decoded source image.
     pub layers: Vec<Layer>,
+    /// Named versions of this edit to come back to. Not rendered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshots: Vec<Snapshot>,
+}
+
+/// A saved copy of an edit's layers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub name: String,
+    /// When it was taken, in milliseconds since the Unix epoch.
+    #[serde(default)]
+    pub created_ms: u64,
+    pub layers: Vec<Layer>,
 }
 
 /// Identifies the original file this edit belongs to.
@@ -99,6 +112,7 @@ impl EditDocument {
             version: FORMAT_VERSION,
             source,
             layers: vec![Layer::new("Base")],
+            snapshots: Vec::new(),
         }
     }
 
@@ -209,6 +223,19 @@ mod tests {
         assert_eq!(EditDocument::from_json(&json).unwrap(), doc);
         // Normal blending isn't written, so older builds still read the file.
         assert!(!sample().to_json().unwrap().contains("blend_mode"));
+    }
+
+    #[test]
+    fn snapshots_round_trip_and_are_left_out_when_empty() {
+        let mut doc = sample();
+        assert!(!doc.to_json().unwrap().contains("snapshots"));
+        doc.snapshots.push(Snapshot {
+            name: "Warm".into(),
+            created_ms: 1_790_000_000_000,
+            layers: doc.layers.clone(),
+        });
+        let json = doc.to_json().unwrap();
+        assert_eq!(EditDocument::from_json(&json).unwrap(), doc);
     }
 
     #[test]

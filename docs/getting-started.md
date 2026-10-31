@@ -46,6 +46,10 @@ The bar over the photo has the viewing tools:
 - **Clipping** (J): pure white highlights in red and pure black shadows in blue. The triangles on the histogram light up when either end clips.
 - **Guides** (Shift+G): a rule-of-thirds grid.
 
+**Presets** on the left are ready-made looks. Hover one to preview it on the photo, and click to apply it to the selected layer. A preset only sets the adjustments it includes, so your crop, masks and anything else it leaves out stay as they were. Click **+** next to Presets to save the selected layer's adjustments as your own preset. Your presets are saved as files in Aperio's config folder (for example `~/.config/aperio/presets` on Linux), so you can copy them to another computer.
+
+**Snapshots** keep named versions of an edit, such as a colour and a black-and-white take. Click **+** to save the current version and click a snapshot to go back to it. Snapshots are stored in the photo's sidecar.
+
 **History** on the left lists every change; click one to see the photo as it was then. Undo and redo are Ctrl/⌘+Z and Ctrl/⌘+Shift+Z.
 
 Press Ctrl/⌘+K to search every command by name, and **?** for the list of keyboard shortcuts. Tab hides the side panels and F hides the filmstrip.
