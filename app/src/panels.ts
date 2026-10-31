@@ -19,6 +19,7 @@ import {
   writeCurve,
 } from "./doc";
 import { DENOISE, buildAi, denoiseControls, pluginLayerControls } from "./ai";
+import { buildGrading, buildMixer, buildPresence } from "./color";
 import { aspectFor, boxForAspect, currentBox, fitInside, setBox } from "./overlay";
 import { invoke } from "@tauri-apps/api/core";
 import { type Tab, changed, commit, editor, onUpdate, refresh } from "./state";
@@ -42,6 +43,8 @@ interface SliderOptions {
   set: (v: number) => void;
   /** Extra class on the track, e.g. a temperature gradient. */
   track?: string;
+  /** A CSS background for the track, for gradients that change. */
+  gradient?: () => string;
 }
 
 /** A labelled range input. Moving it previews; releasing it commits;
@@ -63,6 +66,7 @@ export function slider(parent: HTMLElement, o: SliderOptions): () => void {
   });
   parent.append(h("label", { className: "slider" }, h("span", {}, o.label), value, input));
   const sync = () => {
+    if (o.gradient) input.style.background = o.gradient();
     input.disabled = !editor.opened;
     input.value = String(o.get());
     show();
@@ -178,12 +182,16 @@ function buildEdit(root: HTMLElement) {
   add(light.body, "whites", "Whites", -1, 1, 0.01, signed(2));
   add(light.body, "blacks", "Blacks", -1, 1, 0.01, signed(2));
 
+  syncs.push(buildPresence(root, layer));
+
   const color = section(root, "Color", { isChanged: differs(COLOR), onReset: resetKeys(COLOR) });
   syncs.push(color.sync);
   add(color.body, "temperature", "Temperature", 2000, 12000, 50, (v) => `${v} K`, "temp");
   add(color.body, "tint", "Tint", -1, 1, 0.01, signed(2), "tint");
   add(color.body, "vibrance", "Vibrance", -1, 1, 0.01, signed(2));
   add(color.body, "saturation", "Saturation", -1, 1, 0.01, signed(2));
+
+  syncs.push(buildMixer(root, layer), buildGrading(root, layer));
 
   const curve = section(root, "Tone curve", {
     isChanged: () => layer().operations.some((o) => o.op === "curve"),

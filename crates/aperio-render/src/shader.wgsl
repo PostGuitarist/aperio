@@ -25,6 +25,11 @@ const KIND_GAIN: u32 = 1u;
 const KIND_CONTRAST: u32 = 2u;
 const KIND_COLOR: u32 = 3u;
 const KIND_CURVE: u32 = 4u;
+const KIND_HSL: u32 = 5u;
+const KIND_GRADE: u32 = 6u;
+const HSL_HUE_RANGE: f32 = 30.0 / 360.0;
+const GRADE_CENTER: u32 = 16u;
+const GRADE_WIDTH: u32 = 17u;
 const LUT_SIZE: u32 = 256u;
 const PIVOT: f32 = 0.18;
 
@@ -70,8 +75,87 @@ fn tone(start: u32, v: f32) -> f32 {
     return srgb_to_linear(lut(start, linear_to_srgb(v)));
 }
 
+// sRGB-encoded channels, with overbright values scaled into range first.
+// Matches `encode` and `decode` in adjust.rs.
+fn encode(px: vec3<f32>, scale: f32) -> vec3<f32> {
+    let v = px / scale;
+    return vec3<f32>(linear_to_srgb(v.r), linear_to_srgb(v.g), linear_to_srgb(v.b));
+}
+
+fn decode(c: vec3<f32>, scale: f32) -> vec3<f32> {
+    let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec3<f32>(srgb_to_linear(v.r), srgb_to_linear(v.g), srgb_to_linear(v.b)) * scale;
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let n = vec3<f32>(5.0, 3.0, 1.0) + vec3<f32>(h * 6.0);
+    let k = n - 6.0 * floor(n / 6.0);
+    return vec3<f32>(v) - v * s * clamp(min(k, vec3<f32>(4.0) - k), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// Matches `hsl_pixel` in adjust.rs.
+fn hsl(start: u32, px: vec3<f32>) -> vec3<f32> {
+    let scale = max(max(px.r, max(px.g, px.b)), 1.0);
+    let c = encode(px, scale);
+    let mx = max(c.r, max(c.g, c.b));
+    let mn = min(c.r, min(c.g, c.b));
+    let chroma = mx - mn;
+    if chroma <= 1e-6 {
+        return px;
+    }
+    var h: f32;
+    if mx == c.r {
+        h = (c.g - c.b) / chroma;
+    } else if mx == c.g {
+        h = (c.b - c.r) / chroma + 2.0;
+    } else {
+        h = (c.r - c.g) / chroma + 4.0;
+    }
+    h = h / 6.0;
+    h = h - floor(h);
+    let s = chroma / mx;
+    let dh = lut(start, h);
+    let ds = lut(start + LUT_SIZE, h);
+    let dl = lut(start + 2u * LUT_SIZE, h);
+    var h2 = h + dh * HSL_HUE_RANGE;
+    h2 = h2 - floor(h2);
+    let turned = hsv_to_rgb(h2, s, mx);
+    let lum = luminance(turned);
+    let k = 1.0 + dl * 0.5 * s;
+    return decode(max(vec3<f32>(lum) + (turned - vec3<f32>(lum)) * (1.0 + ds), vec3<f32>(0.0)) * k, scale);
+}
+
+// Matches `grade_pixel` in adjust.rs.
+fn grade(start: u32, px: vec3<f32>) -> vec3<f32> {
+    let scale = max(max(px.r, max(px.g, px.b)), 1.0);
+    var c = encode(px, scale);
+    let l = linear_to_srgb(luminance(px) / scale);
+    let center = luts[start + GRADE_CENTER];
+    let width = luts[start + GRADE_WIDTH];
+    let shadows = 1.0 - smoothstep(0.0, center + width, l);
+    let highlights = smoothstep(center - width, 1.0, l);
+    let mid = max(1.0 - shadows - highlights, 0.0);
+    // Unrolled: Direct3D's shader compiler rejects dynamic array indexing here.
+    c += shadows * tint(start);
+    c += mid * tint(start + 4u);
+    c += highlights * tint(start + 8u);
+    c += tint(start + 12u);
+    return decode(c, scale);
+}
+
+// One wheel of a grade block: its RGB tint plus its luminance shift.
+fn tint(t: u32) -> vec3<f32> {
+    return vec3<f32>(luts[t], luts[t + 1u], luts[t + 2u]) + vec3<f32>(luts[t + 3u]);
+}
+
 fn apply(op: AdjustOp, px: vec3<f32>) -> vec3<f32> {
     switch op.kind {
+        case KIND_HSL: {
+            return hsl(u32(op.a) * LUT_SIZE, px);
+        }
+        case KIND_GRADE: {
+            return grade(u32(op.a) * LUT_SIZE, px);
+        }
         case KIND_GAIN: {
             return px * vec3<f32>(op.a, op.b, op.c);
         }

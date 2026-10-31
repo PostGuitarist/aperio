@@ -18,6 +18,7 @@ mod gpu;
 pub mod heif;
 pub mod masks;
 pub mod metadata;
+pub mod presence;
 pub mod sharpen;
 pub mod tone;
 
