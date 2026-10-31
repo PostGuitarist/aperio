@@ -8,6 +8,9 @@ interface Photo {
   path: string;
   file_name: string;
   edited: boolean;
+  rating?: number;
+  flag?: "pick" | "reject" | null;
+  label?: string | null;
 }
 
 interface Folder {
@@ -94,6 +97,9 @@ export function buildFilmstrip(root: HTMLElement, open: (path: string) => void) 
       el.dataset.path = p.path;
       if (p.path === current) el.classList.add("current");
       if (p.edited) el.append(h("span", { className: "edited", title: "Edited" }));
+      if (p.rating) el.append(h("span", { className: "rating" }, "★".repeat(p.rating)));
+      if (p.label) el.append(h("span", { className: `label-bar ${p.label}` }));
+      el.classList.toggle("rejected", p.flag === "reject");
       const url = urls.get(p.path);
       if (url) el.style.backgroundImage = `url(${url})`;
       else seen.observe(el);

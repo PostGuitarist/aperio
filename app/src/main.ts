@@ -308,6 +308,7 @@ async function openPath(path: string) {
   try {
     const opened = await invoke<Opened>("open_image", { path });
     openedPath = path;
+    stale = false;
     editor.path = path;
     title.replaceChildren(
       h("span", {}, opened.folder.split(/[\\/]/).pop() ?? ""),
@@ -351,14 +352,20 @@ type Mode = "library" | "edit";
 let mode: Mode = "edit";
 /** The full path of the photo in the editor. */
 let openedPath: string | null = null;
+/** Set when the open photo's sidecar was changed from the library (by
+ * syncing edits), so the editor reloads it instead of overwriting it. */
+let stale = false;
 
 const library = buildLibrary($("#library"), $<HTMLInputElement>("#search"), {
   edit: async (path) => {
-    if (path !== openedPath) await openPath(path);
+    if (path !== openedPath || stale) await openPath(path);
     setMode("edit");
   },
+  synced: (paths) => {
+    if (openedPath && paths.includes(openedPath)) stale = true;
+  },
   quickExport: async (path, thumbnail) => {
-    if (path !== openedPath) await openPath(path);
+    if (path !== openedPath || stale) await openPath(path);
     setMode("edit");
     exportPhoto(thumbnail);
   },
@@ -377,6 +384,7 @@ function setMode(next: Mode) {
   }
   // Coming back from editing, pick up the new sidecar and thumbnail.
   if (next === "library") void library.show(leaving === "edit" ? (openedPath ?? undefined) : undefined);
+  else if (stale && openedPath) void openPath(openedPath).then(layout);
   else layout();
 }
 
@@ -489,7 +497,7 @@ document.addEventListener("keydown", (e) => {
     } else if (mod && e.key.toLowerCase() === "k") {
       e.preventDefault();
       palette.open();
-    } else if (!mod && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement)) library.key(e);
+    } else if (!(e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement)) library.key(e);
     return;
   }
   if (e.key === " " && editor.zoom > 0) {

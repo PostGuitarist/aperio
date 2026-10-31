@@ -1,5 +1,6 @@
 mod clean;
 mod library;
+mod organize;
 mod presets;
 mod view;
 
@@ -8,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use aperio_ai::ModelFile;
-use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument, SourceRef};
+use aperio_core::{document::FORMAT_ID, sidecar_path, EditDocument};
 use aperio_plugin::{Host, PluginInfo, Progress};
 use aperio_plugin_segment::models;
 use aperio_render::export::{export_with_metadata, ExportMetadata};
@@ -205,20 +206,7 @@ fn prepare_ai_masks(plugins: &Plugins, preview: &LinearImage) {
 
 fn load(path: &Path) -> CmdResult<(LinearImage, EditDocument)> {
     let img = decode(path).map_err(err)?;
-    let sidecar = sidecar_path(path);
-    let doc = if sidecar.exists() {
-        EditDocument::load(&sidecar).map_err(err)?
-    } else {
-        EditDocument::new(SourceRef {
-            file_name: path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into(),
-            size_bytes: std::fs::metadata(path).map_err(err)?.len(),
-            sha256: None,
-        })
-    };
+    let doc = organize::load_or_new(path).map_err(err)?;
     Ok((img, doc))
 }
 
@@ -241,10 +229,15 @@ async fn render_preview(
         let session = session.as_mut().ok_or("no photo is open")?;
         session.doc = doc.clone();
         if save {
-            session
-                .doc
-                .save(&sidecar_path(&session.source))
-                .map_err(err)?;
+            let sidecar = sidecar_path(&session.source);
+            // The Library owns ratings, flags, and labels, and may have
+            // changed them since the editor loaded this photo.
+            if let Ok(on_disk) = EditDocument::load(&sidecar) {
+                session.doc.rating = on_disk.rating;
+                session.doc.flag = on_disk.flag;
+                session.doc.label = on_disk.label;
+            }
+            session.doc.save(&sidecar).map_err(err)?;
         }
         (session.preview.clone(), session.source.clone())
     };
@@ -473,6 +466,61 @@ async fn list_folder(path: PathBuf) -> CmdResult<library::Folder> {
         .map_err(err)
 }
 
+/// Library entries for photos anywhere, such as an album's.
+#[tauri::command]
+async fn list_photos(paths: Vec<PathBuf>) -> CmdResult<Vec<library::Photo>> {
+    tauri::async_runtime::spawn_blocking(move || library::photos(&paths))
+        .await
+        .map_err(err)
+}
+
+/// Rate, flag, or label photos. Returns their updated entries.
+#[tauri::command]
+async fn set_marks(
+    paths: Vec<PathBuf>,
+    change: organize::MarkChange,
+) -> CmdResult<Vec<library::Photo>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        organize::set_marks(&paths, &change).map_err(err)?;
+        Ok(library::photos(&paths))
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Copy parts of one photo's edit to others, and redraw their thumbnails.
+/// Returns how many changed.
+#[tauri::command]
+async fn sync_edits(
+    from: PathBuf,
+    to: Vec<PathBuf>,
+    parts: Vec<organize::SyncPart>,
+    state: State<'_, AppState>,
+) -> CmdResult<usize> {
+    let changed = tauri::async_runtime::spawn_blocking(move || organize::sync(&from, &to, &parts))
+        .await
+        .map_err(err)?
+        .map_err(err)?;
+    let count = changed.len();
+    with_renderer(&state, move |r| {
+        for (path, doc) in &changed {
+            library::render_thumbnail(r, &library::cache_dir(), path, doc);
+        }
+    })
+    .await?;
+    Ok(count)
+}
+
+#[tauri::command]
+fn load_collections() -> organize::Collections {
+    organize::load_collections(&organize::collections_path())
+}
+
+#[tauri::command]
+fn save_collections(collections: organize::Collections) -> CmdResult<()> {
+    organize::save_collections(&organize::collections_path(), collections).map_err(err)
+}
+
 /// A photo's thumbnail as JPEG bytes, made on first request and cached.
 #[tauri::command]
 async fn thumbnail(path: PathBuf) -> CmdResult<Response> {
@@ -604,7 +652,12 @@ pub fn run() {
             download_models,
             list_presets,
             save_preset,
-            delete_preset
+            delete_preset,
+            list_photos,
+            set_marks,
+            sync_edits,
+            load_collections,
+            save_collections
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aperio");

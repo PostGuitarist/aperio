@@ -57,6 +57,7 @@ Keeping the original extension means `IMG_0001.CR3` and `IMG_0001.JPG` from the 
 | `version` | Schema version. Readers reject versions newer than they support and upgrade older ones. |
 | `source.file_name` | Original file name only, so the pair survives a folder move. |
 | `source.size_bytes`, `source.sha256` | Used to warn when the original has been replaced. `sha256` is optional. |
+| `rating`, `flag`, `label` | Optional Library marks, left out when unset. `rating` is 0–5; `flag` is `pick` or `reject`; `label` is `red`, `yellow`, `green`, `blue`, or `purple`. A sidecar holding only marks doesn't count as an edit. |
 | `snapshots` | Optional, left out when empty. Named versions of the edit: each has a `name`, `created_ms` (milliseconds since the Unix epoch), and its own `layers`, in the same form as the top-level `layers`. Snapshots are never rendered. |
 | `layers` | Applied bottom to top. Each layer runs its operations on the result of the layers below, then blends that back in by mask × opacity. The first layer works on the decoded source image. |
 | `layers[].enabled`, `opacity` | Default to `true` and `1.0` when missing. |
@@ -117,6 +118,10 @@ User presets are separate files, one per preset, named `<name>.aperio-preset.jso
 ```
 
 `operations` uses the same operation objects as a layer. Applying a preset replaces the layer's operations of the same kind (one per kind, and one curve per channel) and keeps everything else. Crop and plugin operations are never saved in a preset.
+
+## Albums and smart collections
+
+Albums and smart collections are kept in one file, `collections.json`, in the same config folder as presets. An album lists photo paths; a smart collection stores its rules (`min_rating`, and optionally `flag`, `label`, `edited`, `kind`, and `name_contains`) and is worked out each time from the photos in the Library's recent folders.
 
 ## Compatibility rules
 
