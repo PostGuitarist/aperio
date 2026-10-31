@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Aperio redesign prototype</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #111215;
+  --panel: #18191d;
+  --panel-2: #1d1f24;
+  --raised: #23262c;
+  --hover: #2a2d34;
+  --border: #282b31;
+  --border-2: #33363e;
+  --canvas: #0b0c0e;
+  --text: #ebe8e2;
+  --text-2: #c9c6c0;
+  --muted: #8d909a;
+  --faint: #5d606a;
+  --accent: #f2b24c;
+  --accent-dim: #f2b24c33;
+  --accent-ink: #1a1306;
+  --track: #2e3138;
+  --mask: #e0524a;
+  --ok: #6fc28b;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; width: 1440px; height: 900px; overflow: hidden; background: var(--bg); color: var(--text); display: grid; grid-template-rows: 44px 1fr 24px; }
+.mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+button { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--border-2); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button.ghost { background: none; border-color: transparent; color: var(--text-2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+kbd { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; color: var(--muted); border: 1px solid var(--border-2); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel-2); }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; letter-spacing: .01em; }
+.logo .mark { width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--accent); position: relative; }
+.logo .mark::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; background: var(--accent); }
+.modes { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 2px; margin-left: 8px; }
+.modes button { border: 0; background: none; color: var(--muted); padding: 3px 12px; border-radius: 5px; }
+.modes button.on { background: var(--raised); color: var(--text); }
+.modes button kbd { margin-left: 6px; border: 0; background: none; padding: 0; color: var(--faint); }
+.crumb { display: flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--muted); }
+.crumb b { color: var(--text); font-weight: 500; }
+.crumb .pill { font-size: 10px; border: 1px solid var(--border-2); border-radius: 4px; padding: 0 5px; color: var(--muted); }
+.spacer { flex: 1; }
+.cmd { display: flex; align-items: center; gap: 8px; width: 260px; height: 28px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--faint); }
+.cmd span { flex: 1; }
+.tb-group { display: flex; gap: 2px; }
+.tb-group button { padding: 4px 6px; }
+.top .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; background: none; border-color: transparent; color: var(--text-2); }
+.top .icon-btn.on { background: var(--raised); color: var(--accent); border-color: var(--border-2); }
+
+/* status bar */
+.status { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: var(--panel); border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; }
+.status .keys { display: flex; gap: 12px; }
+
+/* main layout */
+.main { display: grid; grid-template-columns: 44px 224px minmax(0, 1fr) 324px; min-height: 0; }
+.rail { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 2px; }
+.rail button { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; background: none; border-color: transparent; color: var(--text-2); position: relative; }
+.rail button.on { background: var(--accent-dim); color: var(--accent); }
+.rail button .k { position: absolute; right: 1px; bottom: 0; font-size: 8px; color: var(--faint); font-family: ui-monospace, monospace; }
+.rail .sep { width: 20px; height: 1px; background: var(--border-2); margin: 5px 0; }
+
+.left { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ptabs { display: flex; gap: 2px; padding: 8px 8px 0; border-bottom: 1px solid var(--border); }
+.ptabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 6px 8px; font-weight: 500; }
+.ptabs button.on { color: var(--text); border-color: var(--accent); }
+.search { margin: 8px; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--faint); }
+.preset-group { padding: 4px 8px 6px; }
+.preset-group h4 { display: flex; justify-content: space-between; margin: 6px 4px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.preset { border-radius: 6px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--border); }
+.preset.on { border-color: var(--accent); }
+.preset .thumb { height: 52px; background-size: cover; background-position: center 40%; }
+.preset .name { padding: 4px 6px; font-size: 11px; color: var(--text-2); display: flex; justify-content: space-between; }
+.amount { margin: 4px 12px 8px; }
+.history { border-top: 1px solid var(--border); margin-top: auto; padding: 8px; }
+.history h4, .sec-title { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 2px 4px 6px; display: flex; justify-content: space-between; align-items: center; }
+.hist-row { display: flex; justify-content: space-between; padding: 3px 6px; border-radius: 4px; color: var(--text-2); font-size: 11px; }
+.hist-row.on { background: var(--raised); color: var(--text); }
+.hist-row span:last-child { color: var(--faint); }
+.snap { display: flex; gap: 6px; padding: 4px 4px 0; }
+.snap div { flex: 1; height: 34px; border-radius: 4px; background-size: cover; background-position: center; border: 1px solid var(--border-2); position: relative; }
+.snap div span { position: absolute; left: 3px; bottom: 1px; font-size: 9px; text-shadow: 0 1px 2px #000; }
+
+/* center */
+.center { display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; grid-template-rows: 36px 1fr 96px; min-width: 0; min-height: 0; background: var(--canvas); }
+.vbar { display: flex; align-items: center; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--border); background: #0f1013; }
+.seg { display: flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: none; color: var(--muted); padding: 3px 9px; border-right: 1px solid var(--border-2); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--raised); color: var(--text); }
+.vbar .lbl { color: var(--faint); margin: 0 2px 0 8px; }
+.clip { display: flex; gap: 4px; }
+.clip span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; border: 1px solid var(--border-2); }
+.stage { position: relative; display: grid; place-items: center; overflow: hidden; }
+.photo { position: relative; width: 800px; height: 450px; box-shadow: 0 10px 40px #000a; }
+.photo canvas, .photo img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.split { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; left: 50%; box-shadow: 0 0 6px #0008; }
+.split .knob { position: absolute; top: 50%; left: -13px; width: 28px; height: 28px; margin-top: -14px; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.tag { position: absolute; top: 10px; padding: 2px 8px; border-radius: 4px; background: #000a; font-size: 11px; backdrop-filter: blur(4px); }
+.loupe-info { position: absolute; left: 12px; bottom: 10px; display: flex; gap: 14px; color: var(--muted); font-size: 11px; }
+.navigator { position: absolute; right: 12px; bottom: 10px; width: 124px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-2); background: var(--panel); }
+.navigator .img { height: 70px; background-size: cover; background-position: center; position: relative; }
+.navigator .img i { position: absolute; left: 40%; top: 30%; width: 38%; height: 40%; border: 1.5px solid var(--accent); box-shadow: 0 0 0 999px #0007; }
+.navigator .row { display: flex; justify-content: space-between; padding: 3px 7px; font-size: 10px; color: var(--muted); }
+
+.strip { border-top: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+.strip-head { display: flex; align-items: center; gap: 10px; padding: 4px 10px; font-size: 11px; color: var(--muted); }
+.thumbs { display: flex; gap: 6px; padding: 0 10px; overflow: hidden; }
+.th { width: 104px; height: 62px; border-radius: 4px; flex: none; position: relative; background-size: cover; background-position: center; border: 2px solid transparent; }
+.th.on { border-color: var(--accent); }
+.th .stars { position: absolute; left: 4px; bottom: 2px; font-size: 9px; color: #fff; text-shadow: 0 1px 2px #000; letter-spacing: 1px; }
+.th .lab { position: absolute; right: 4px; top: 4px; width: 8px; height: 8px; border-radius: 2px; }
+.th .ed { position: absolute; right: 4px; bottom: 4px; width: 12px; height: 12px; border-radius: 3px; background: #000a; display: grid; place-items: center; }
+.th .ed::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.th.rej { opacity: .35; }
+
+/* right panel */
+.right { min-width: 0; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.histo { padding: 10px 10px 6px; border-bottom: 1px solid var(--border); }
+.histo .box { position: relative; height: 92px; border-radius: 6px; background: #0c0d10; overflow: hidden; border: 1px solid var(--border); }
+.histo canvas { width: 100%; height: 100%; display: block; }
+.histo .tri { position: absolute; top: 4px; width: 0; height: 0; border: 5px solid transparent; }
+.histo .tri.l { left: 4px; border-top-color: #4aa3ff; border-left-color: #4aa3ff; }
+.histo .tri.r { right: 4px; border-top-color: var(--mask); border-right-color: var(--mask); }
+.exif { display: flex; justify-content: space-between; padding: 6px 2px 0; color: var(--muted); font-size: 11px; }
+.rtabs { display: flex; padding: 0 6px; border-bottom: 1px solid var(--border); }
+.rtabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 7px 0 6px; font-size: 10px; }
+.rtabs button.on { color: var(--text); border-color: var(--accent); }
+.rtabs button.on svg { color: var(--accent); }
+.scroll { flex: 1; overflow: hidden; }
+.layerbar { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.layer-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; }
+.layer-row.on { background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
+.layer-row .eye { color: var(--muted); }
+.layer-row .lt { width: 30px; height: 20px; border-radius: 3px; background-size: cover; background-position: center; border: 1px solid var(--border-2); }
+.layer-row .mt { width: 30px; height: 20px; border-radius: 3px; border: 1px solid var(--border-2); }
+.layer-row .nm { flex: 1; }
+.layer-row .op { color: var(--faint); font-size: 11px; }
+.blend { display: flex; gap: 6px; margin-top: 6px; }
+.select { flex: 1; display: flex; align-items: center; justify-content: space-between; height: 24px; padding: 0 8px; border-radius: 5px; border: 1px solid var(--border-2); background: var(--bg); color: var(--text-2); }
+.section { border-bottom: 1px solid var(--border); }
+.sh { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-weight: 600; font-size: 12px; }
+.sh .chev { color: var(--muted); width: 12px; }
+.sh .acts { margin-left: auto; display: flex; gap: 8px; color: var(--faint); }
+.sh .dotmod { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sb { padding: 0 12px 10px; }
+.sub { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 6px 0 2px; font-weight: 600; }
+.sl { display: grid; grid-template-columns: 84px 1fr 62px; align-items: center; gap: 8px; height: 22px; }
+.sl label { color: var(--text-2); white-space: nowrap; }
+.sl.mod label { color: var(--text); }
+.sl .val { white-space: nowrap; text-align: right; font-size: 11px; color: var(--muted); padding: 1px 4px; border-radius: 3px; }
+.sl.mod .val { color: var(--text); }
+.trk { position: relative; height: 3px; border-radius: 2px; background: var(--track); }
+.trk .fill { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 2px; }
+.trk .zero { position: absolute; left: 50%; top: -3px; width: 1px; height: 9px; background: var(--border-2); }
+.trk .th2 { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: #e9e6e0; box-shadow: 0 1px 3px #000a; }
+.trk.grad { height: 4px; }
+.wb-row { display: flex; gap: 6px; margin: 2px 0 6px; }
+.wb-row .select { flex: 1; }
+.wb-row button { padding: 2px 6px; display: grid; place-items: center; }
+.auto { display: flex; gap: 6px; }
+.auto button { padding: 1px 8px; font-size: 11px; }
+
+/* curve */
+.curve-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.chans { display: flex; gap: 4px; }
+.chans span { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--border-2); font-size: 9px; }
+.chans span.on { border-color: var(--text); }
+.curvebox { height: 150px; border-radius: 6px; background: #0c0d10; border: 1px solid var(--border); position: relative; overflow: hidden; }
+.curvebox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.regions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
+
+/* HSL / mixer */
+.mix-tabs { display: flex; gap: 0; margin-bottom: 6px; }
+.colors { display: flex; justify-content: space-between; margin: 4px 0 8px; }
+.colors span { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
+.colors span.on { border-color: #fff; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px #fff4; }
+.wheels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.wheel { text-align: center; }
+.wheel .w { width: 76px; height: 76px; margin: 0 auto; border-radius: 50%; position: relative;
+  background: radial-gradient(circle, #ddd 0%, #ddd0 70%), conic-gradient(from 90deg, #f55, #fb4, #ef5, #5e6, #5ef, #56f, #e5f, #f55); }
+.wheel .w::after { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 1px #0006; background: radial-gradient(circle, #18191d00 0%, #18191d55 100%); }
+.wheel .p { position: absolute; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; z-index: 1; box-shadow: 0 0 3px #000; }
+.wheel .lum { height: 3px; margin: 8px 6px 4px; border-radius: 2px; background: linear-gradient(90deg, #000, #fff); position: relative; }
+.wheel .lum i { position: absolute; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #e9e6e0; margin-left: -5px; }
+.wheel .t { font-size: 11px; color: var(--text-2); }
+.wheel .v { font-size: 10px; color: var(--muted); }
+.global-wheel { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+
+/* mask panel */
+.mask-list { padding: 6px 10px; }
+.mask-item { border: 1px solid var(--border-2); border-radius: 8px; padding: 8px; background: var(--panel-2); margin-bottom: 8px; }
+.mask-item.on { border-color: var(--accent); }
+.mask-item .hd { display: flex; align-items: center; gap: 8px; }
+.mask-item .comp { margin: 8px 0 0 10px; border-left: 1px solid var(--border-2); padding-left: 10px; display: flex; flex-direction: column; gap: 6px; }
+.comp-row { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+.comp-row .op { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; background: var(--raised); font-size: 12px; color: var(--muted); }
+.comp-row .mtn { width: 34px; height: 20px; border-radius: 3px; border: 1px solid var(--border-2); }
+.ai-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.ai-grid button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; font-size: 11px; }
+.ai-grid button.ready::after { content: "Ready"; font-size: 9px; color: var(--ok); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--text-2); font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.mask-hud { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 5px 10px; border-radius: 8px; background: #121316e6; border: 1px solid var(--border-2); font-size: 11px; }
+.mask-hud .sw { width: 12px; height: 12px; border-radius: 3px; background: var(--mask); }
+
+/* library */
+.lib { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; min-height: 0; }
+.lib .left { padding: 8px; }
+.nav-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; color: var(--text-2); }
+.nav-row.on { background: var(--raised); color: var(--text); }
+.nav-row .n { margin-left: auto; color: var(--faint); font-size: 11px; }
+.grid-wrap { display: grid; grid-template-rows: 40px 1fr; background: var(--canvas); min-height: 0; }
+.filterbar { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: #0f1013; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px; align-content: start; }
+.cell { border-radius: 6px; background: var(--panel); border: 1px solid var(--border); overflow: hidden; }
+.cell.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.cell.sel { border-color: #f2b24c88; }
+.cell .im { height: 132px; background-size: cover; background-position: center; position: relative; }
+.cell .meta { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11px; color: var(--muted); }
+.cell .meta .st { color: var(--accent); letter-spacing: 1px; }
+.cell .meta .st i { color: var(--faint); font-style: normal; }
+.cell .badge { position: absolute; left: 6px; top: 6px; font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #000a; }
+.cell .flag { position: absolute; right: 6px; top: 6px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; background: #000a; }
+.cell .lb { width: 8px; height: 8px; border-radius: 2px; margin-left: auto; }
+.batch button { white-space: nowrap; }
+.batch { white-space: nowrap; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 10px; background: #1d1f24f2; border: 1px solid var(--border-2); box-shadow: 0 10px 30px #000a; }
+.info-row { display: grid; grid-template-columns: 82px 1fr; padding: 3px 0; font-size: 11px; }
+.info-row span:first-child { color: var(--muted); }
+.kw { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* palette */
+.overlay-dim { position: fixed; inset: 0; background: #0009; display: grid; place-items: start center; padding-top: 110px; }
+.palette { width: 600px; border-radius: 12px; background: var(--panel); border: 1px solid var(--border-2); box-shadow: 0 30px 80px #000; overflow: hidden; }
+.palette .in { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; }
+.palette .in .cur { width: 1.5px; height: 18px; background: var(--accent); margin-left: -8px; }
+.prow { display: flex; align-items: center; gap: 10px; padding: 8px 16px; color: var(--text-2); }
+.prow.on { background: var(--raised); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.prow .sp { flex: 1; }
+.prow .cat { color: var(--faint); font-size: 11px; }
+.pgroup { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 10px 16px 4px; font-weight: 600; }
+.pfoot { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.cheat { position: fixed; right: 344px; bottom: 140px; width: 300px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border-2); box-shadow: 0 20px 50px #000c; }
+.cheat .r { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text-2); }
+</style>
+</head>
+<body>
+<header class="top" id="top"></header>
+<div id="main"></div>
+<footer class="status" id="status"></footer>
+<script>
+const view = new URLSearchParams(location.search).get("view") || "develop";
+const P = "img/"; // put the photos from README.md here
+const PHOTOS = ["mekong_storm", "neskaupstadur", "laugavegur", "nam_khan_rainbow", "vialais_creek", "san_carlos", "luang_prabang_bridge", "moraine_lake"];
+const MAIN = P + "mekong_storm.jpg";
+const EDIT_FILTER = "contrast(1.16) saturate(1.32) brightness(1.03)";
+
+const I = {
+  select: '<path d="M6 3l12 9-5.5 1L15 20l-2.5 1-2.6-7L6 17z"/>',
+  crop: '<path d="M7 3v14h14M3 7h14v14"/>',
+  brush: '<path d="M14 4l6 6-8 8-4 1 1-4zM5 20c-1 0-2-1-1-2"/>',
+  linear: '<path d="M4 8h16M4 16h16M12 5v14"/>',
+  radial: '<ellipse cx="12" cy="12" rx="8" ry="6"/><ellipse cx="12" cy="12" rx="4" ry="3"/>',
+  ai: '<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>',
+  heal: '<path d="M8 4l12 12-4 4L4 8z"/><path d="M10 12l2 2M12 10l2 2"/>',
+  pick: '<path d="M15 4l5 5-2 2-5-5zM13 6l-8 8v5h5l8-8"/>',
+  sampler: '<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  hand: '<path d="M8 13V6a1.5 1.5 0 013 0v5M11 11V4.5a1.5 1.5 0 013 0V11M14 11V6a1.5 1.5 0 013 0v7c0 4-2.5 7-6 7s-5-2-7-6l-1-2a1.5 1.5 0 012.5-1.5L8 13"/>',
+  zoom: '<circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5M8 10h4M10 8v4"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/>',
+  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  chevD: '<path d="M6 9l6 6 6-6"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  reset: '<path d="M4 12a8 8 0 108-8H8"/><path d="M8 1L5 4l3 3"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  mask: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="4"/>',
+  sparkle: '<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>',
+  export: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 15v4h14v-4"/>',
+  grid: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 10h16M4 15h16M10 4v16M15 4v16"/>',
+  split: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v0"/>',
+  flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  album: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 15l4-4 4 4 3-3 5 5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  wand: '<path d="M4 20L16 8M14 4v2M18 8h2M18 4l-1 1M10 4l1 1"/>',
+  invert: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 000 16z" fill="currentColor"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/>',
+  sync: '<path d="M4 12a8 8 0 0114-5l2 2M20 12a8 8 0 01-14 5l-2-2"/><path d="M20 4v5h-5M4 20v-5h5"/>',
+  person: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+  mountain: '<path d="M3 19l6-9 4 5 3-4 5 8z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/>',
+  cloud: '<path d="M7 18a4 4 0 01-.5-8A6 6 0 0118 9a4.5 4.5 0 01-.5 9z"/>',
+};
+const ic = (n, s = 16) => `<svg class="i" style="width:${s}px;height:${s}px" viewBox="0 0 24 24">${I[n]}</svg>`;
+
+function topbar(mode) {
+  return `
+  <div class="logo"><span class="mark"></span>Aperio</div>
+  <div class="modes">
+    <button class="${mode === "library" ? "on" : ""}">Library<kbd>G</kbd></button>
+    <button class="${mode === "edit" ? "on" : ""}">Develop<kbd>D</kbd></button>
+    <button>Export<kbd>E</kbd></button>
+  </div>
+  ${mode === "edit" ? `<div class="crumb">Laos 2026 <span class="faint">/</span> <b>mekong_storm.NEF</b> <span class="pill">RAW</span> <span class="mono faint">6613×3720</span></div>` : `<div class="crumb">Catalog-free · <b>Laos 2026</b> <span class="faint">· 248 photos · 31 picks</span></div>`}
+  <span class="spacer"></span>
+  <div class="cmd">${ic("search", 14)}<span>Search tools, presets, photos…</span><kbd>⌘K</kbd></div>
+  ${mode === "edit" ? `<div class="tb-group"><button class="icon-btn" title="Undo">${ic("undo")}</button><button class="icon-btn" title="Redo">${ic("redo")}</button></div>
+  <button class="icon-btn" title="Copy edits">${ic("copy")}</button>` : ""}
+  <button class="primary">${mode === "library" ? "Export 3…" : "Export…"}</button>`;
+}
+
+function statusbar(extra = "") {
+  return `<span><span class="dot"></span>GPU · Metal</span><span class="mono">Preview 38 ms</span><span>Sidecar saved</span>${extra}<span class="spacer"></span>
+  <span class="keys"><span><kbd>\\</kbd> before/after</span><span><kbd>J</kbd> clipping</span><span><kbd>Z</kbd> 100%</span><span><kbd>?</kbd> shortcuts</span></span>`;
+}
+
+function rail(on) {
+  const tools = [["select", "V"], ["crop", "C"], ["heal", "H"], "|", ["brush", "B"], ["linear", "G"], ["radial", "R"], ["ai", "A"], "|", ["pick", "W"], ["sampler", "S"], "|", ["hand", "␣"], ["zoom", "Z"]];
+  return `<nav class="rail">${tools.map((t) => (t === "|" ? '<span class="sep"></span>' : `<button class="${t[0] === on ? "on" : ""}">${ic(t[0], 18)}<span class="k">${t[1]}</span></button>`)).join("")}</nav>`;
+}
+
+function leftPanel() {
+  const group = (title, items, onIdx = -1) => `
+    <div class="preset-group"><h4>${title}<span>${ic("chevD", 12)}</span></h4>
+    <div class="presets">${items.map(([n, f, k], i) => `<div class="preset ${i === onIdx ? "on" : ""}"><div class="thumb" style="background-image:url(${MAIN});filter:${f}"></div><div class="name"><span>${n}</span>${k ? `<kbd>${k}</kbd>` : ""}</div></div>`).join("")}</div></div>`;
+  return `<aside class="left">
+    <div class="ptabs"><button class="on">Presets</button><button>History</button><button>Snapshots</button></div>
+    <div class="search">${ic("search", 13)} Filter 64 presets</div>
+    ${group("Recent", [["Monsoon", "contrast(1.25) saturate(1.3) hue-rotate(-8deg)", "1"], ["Clean pop", "contrast(1.1) saturate(1.4) brightness(1.05)", "2"]], 0)}
+    ${group("Landscape", [["Golden hour", "sepia(.35) saturate(1.4) brightness(1.05)"], ["Slate", "saturate(.55) contrast(1.2)"], ["Deep greens", "hue-rotate(10deg) saturate(1.25) contrast(1.1)"], ["Fog lift", "contrast(.8) brightness(1.15) saturate(.8)"]])}
+    ${group("Monochrome", [["Silver", "grayscale(1) contrast(1.3)"], ["Selenium", "grayscale(1) sepia(.3) contrast(1.2)"]])}
+    <div class="amount"><div class="sl mod"><label>Amount</label><div class="trk"><div class="fill" style="left:0;width:80%"></div><div class="th2" style="left:80%"></div></div><span class="val mono">80</span></div></div>
+    <div class="history">
+      <h4>History <span class="faint" style="letter-spacing:0;text-transform:none">7 steps</span></h4>
+      <div class="hist-row on"><span>Sky · Exposure −0.45</span><span>now</span></div>
+      <div class="hist-row"><span>Add AI mask: Sky</span><span>1m</span></div>
+      <div class="hist-row"><span>Color grading · Shadows</span><span>2m</span></div>
+      <div class="hist-row"><span>Preset: Monsoon (80%)</span><span>3m</span></div>
+      <div class="snap"><div style="background-image:url(${MAIN})"><span>Original</span></div><div style="background-image:url(${MAIN});filter:${EDIT_FILTER}"><span>v1 warm</span></div><div style="display:grid;place-items:center;color:var(--muted)">${ic("plus", 14)}</div></div>
+    </div>
+  </aside>`;
+}
+
+function sl(label, v, min, max, fmt, opts = {}) {
+  const pct = ((v - min) / (max - min)) * 100;
+  const zero = opts.zero ?? ((0 - min) / (max - min)) * 100;
+  const mod = Math.abs(v - (opts.neutral ?? 0)) > 1e-6;
+  const fill = opts.grad ? "" : `<div class="fill" style="left:${Math.min(pct, zero)}%;width:${Math.abs(pct - zero)}%"></div>`;
+  return `<div class="sl ${mod ? "mod" : ""}"><label>${label}</label><div class="trk ${opts.grad ? "grad" : ""}" style="${opts.grad ? `background:${opts.grad}` : ""}">${opts.grad ? "" : '<div class="zero"></div>'}${fill}<div class="th2" style="left:${pct}%"></div></div><span class="val mono">${fmt(v)}</span></div>`;
+}
+const sg = (d) => (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d);
+const int = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v));
+
+function section(title, body, { open = true, mod = false, acts = true } = {}) {
+  return `<div class="section"><div class="sh"><span class="chev">${ic(open ? "chevD" : "chevR", 12)}</span>${title}${mod ? '<span class="dotmod" title="Changed"></span>' : ""}${acts ? `<span class="acts">${ic("eye", 14)}${ic("reset", 14)}</span>` : ""}</div>${open ? `<div class="sb">${body}</div>` : ""}</div>`;
+}
+
+function histogramBlock() {
+  return `<div class="histo"><div class="box"><canvas id="hist" width="600" height="180"></canvas><span class="tri l"></span><span class="tri r"></span></div>
+  <div class="exif mono"><span>ISO 64</span><span>24 mm</span><span>f/8</span><span>1/250 s</span><span>±0 EV</span></div></div>`;
+}
+
+function rtabs(on) {
+  const t = [["sliders", "Edit"], ["mask", "Masks"], ["sparkle", "AI"], ["layers", "Layers"], ["info", "Info"]];
+  return `<div class="rtabs">${t.map(([i, n]) => `<button class="${n === on ? "on" : ""}">${ic(i, 16)}${n}</button>`).join("")}</div>`;
+}
+
+function layerStrip() {
+  return `<div class="layerbar">
+    <div class="sec-title">Layer stack <span style="display:flex;gap:8px;color:var(--faint)">${ic("plus", 14)}${ic("more", 14)}</span></div>
+    <div class="layer-row on"><span class="eye">${ic("eye", 14)}</span><div class="lt" style="background-image:url(${MAIN})"></div><div class="mt" style="background:linear-gradient(#fff 0 58%,#000 62%)"></div><span class="nm">Sky</span><span class="op mono">Normal · 100%</span></div>
+    <div class="layer-row"><span class="eye">${ic("eye", 14)}</span><div class="lt" style="background-image:url(${MAIN})"></div><div class="mt" style="background:radial-gradient(ellipse at 50% 80%,#fff 0 20%,#000 45%)"></div><span class="nm">Boat glow</span><span class="op mono">Soft light · 60%</span></div>
+    <div class="layer-row"><span class="eye">${ic("eye", 14)}</span><div class="lt" style="background-image:url(${MAIN})"></div><div class="mt" style="background:#fff"></div><span class="nm">Base</span><span class="op mono">Develop</span></div>
+  </div>`;
+}
+
+function developPanel() {
+  const light = `
+    <div class="wb-row"><div class="select">As shot ${ic("chevD", 12)}</div><button title="White balance picker (W)">${ic("pick", 14)}</button><div class="auto"><button>Auto</button></div></div>
+    ${sl("Temperature", 6900, 2000, 12000, (v) => v + " K", { neutral: 6500, grad: "linear-gradient(90deg,#4a7bd8,#ddd 50%,#e8b04a)" })}
+    ${sl("Tint", 4, -100, 100, int, { grad: "linear-gradient(90deg,#4fbf6a,#ddd 50%,#d65ccf)" })}
+    <div class="sub">Tone</div>
+    ${sl("Exposure", 0.35, -5, 5, (v) => sg(2)(v) + " EV")}
+    ${sl("Contrast", 18, -100, 100, int)}
+    ${sl("Highlights", -62, -100, 100, int)}
+    ${sl("Shadows", 41, -100, 100, int)}
+    ${sl("Whites", 12, -100, 100, int)}
+    ${sl("Blacks", -9, -100, 100, int)}
+    <div class="sub">Presence</div>
+    ${sl("Texture", 15, -100, 100, int)}
+    ${sl("Clarity", 22, -100, 100, int)}
+    ${sl("Dehaze", 10, -100, 100, int)}
+    ${sl("Vibrance", 25, -100, 100, int)}
+    ${sl("Saturation", 0, -100, 100, int)}`;
+  return `<aside class="right">${histogramBlock()}${rtabs("Edit")}${layerStrip()}<div class="scroll">
+    ${section("Light & color", light, { mod: true })}
+    ${section("Tone curve", "", { open: false, mod: true })}
+    ${section("Color mixer", "", { open: false })}
+    ${section("Color grading", "", { open: false, mod: true })}
+    ${section("Detail", "", { open: false })}
+    ${section("Optics", "", { open: false })}
+    ${section("Effects", "", { open: false })}
+  </div></aside>`;
+}
+
+function colorPanel() {
+  const curve = `
+    <div class="curve-head"><div class="seg"><button class="on">Point</button><button>Parametric</button></div><span class="spacer"></span>
+      <div class="chans"><span class="on" style="background:conic-gradient(#e55,#5c5,#58f,#e55)"></span><span style="color:#e66">R</span><span style="color:#6c6">G</span><span style="color:#69f">B</span><span>L</span></div></div>
+    <div class="curvebox"><canvas id="chist" width="600" height="380" style="position:absolute;inset:0;width:100%;height:100%;opacity:.5"></canvas>
+      <svg viewBox="0 0 300 196" preserveAspectRatio="none" style="overflow:visible">
+        <g stroke="#ffffff14"><path d="M75 0V196M150 0V196M225 0V196M0 49H300M0 98H300M0 147H300"/></g>
+        <path d="M0 196L300 0" stroke="#ffffff22" stroke-dasharray="3 3"/>
+        <path d="M0 188 C40 182, 60 170, 75 158 S 140 100, 160 88 S 240 30, 300 4" stroke="#ebe8e2" stroke-width="1.6" fill="none"/>
+        <path d="M0 196 C60 186, 120 120, 160 96 S 260 20, 300 0" stroke="#e66" stroke-width="1.1" fill="none" opacity=".7"/>
+        <path d="M0 192 C70 190, 120 110, 160 92 S 250 26, 300 6" stroke="#69f" stroke-width="1.1" fill="none" opacity=".7"/>
+        <g fill="#ebe8e2" stroke="#111" stroke-width="1"><circle cx="0" cy="188" r="4"/><circle cx="75" cy="158" r="4"/><circle cx="160" cy="88" r="4"/><circle cx="300" cy="4" r="4"/></g>
+        <circle cx="160" cy="88" r="7" fill="none" stroke="#f2b24c" stroke-width="1.5"/>
+      </svg>
+      <span class="mono" style="position:absolute;right:6px;top:4px;font-size:10px;color:var(--muted)">In 54 · Out 58</span>
+    </div>`;
+  const hues = [["#e5534b", "Red"], ["#ef8a3c", "Orange"], ["#e8cf4b", "Yellow"], ["#5cc46a", "Green"], ["#3fc1c9", "Aqua"], ["#4a79e0", "Blue"], ["#9b5ce0", "Purple"], ["#e05cb5", "Magenta"]];
+  const mixer = `
+    <div class="curve-head"><div class="seg"><button class="on">HSL</button><button>Hue</button><button>Sat</button><button>Lum</button></div><span class="spacer"></span><button class="ghost" style="padding:2px 4px" title="Target adjust: drag on photo">${ic("sampler", 14)}</button></div>
+    <div class="colors">${hues.map(([c], i) => `<span class="${i === 5 ? "on" : ""}" style="background:${c}"></span>`).join("")}</div>
+    ${sl("Hue", -8, -100, 100, int, { grad: "linear-gradient(90deg,#3fc1c9,#4a79e0,#9b5ce0)" })}
+    ${sl("Saturation", -18, -100, 100, int, { grad: "linear-gradient(90deg,#8a8d96,#4a79e0)" })}
+    ${sl("Luminance", -24, -100, 100, int, { grad: "linear-gradient(90deg,#16264a,#4a79e0,#c4d4fa)" })}`;
+  const wheel = (name, x, y, lum, val) => `<div class="wheel"><div class="w"><span class="p" style="left:${x}%;top:${y}%;margin:-5px 0 0 -5px"></span></div><div class="lum"><i style="left:${lum}%"></i></div><div class="t">${name}</div><div class="v mono">${val}</div></div>`;
+  const grading = `
+    <div class="curve-head"><div class="seg"><button class="on">3-way</button><button>Shadows</button><button>Mids</button><button>Highs</button><button>Global</button></div></div>
+    <div class="wheels">${wheel("Shadows", 62, 64, 44, "H 205 · S 18")}${wheel("Midtones", 50, 50, 50, "H 0 · S 0")}${wheel("Highlights", 34, 38, 56, "H 42 · S 22")}</div>
+    ${sl("Blending", 50, 0, 100, (v) => v, { zero: 0, neutral: 50 })}
+    ${sl("Balance", -12, -100, 100, int)}`;
+  return `<aside class="right">${histogramBlock()}${rtabs("Edit")}<div class="scroll">
+    ${section("Light & color", "", { open: false, mod: true })}
+    ${section("Tone curve", curve, { mod: true })}
+    ${section("Color mixer", mixer, { mod: true })}
+    ${section("Color grading", grading, { mod: true })}
+  </div></aside>`;
+}
+
+function maskPanel() {
+  return `<aside class="right">${histogramBlock()}${rtabs("Masks")}<div class="scroll">
+    <div class="mask-list">
+      <div class="sec-title">Create mask</div>
+      <div class="ai-grid" style="margin-bottom:6px">
+        <button class="ready">${ic("cloud", 18)}Sky</button><button class="ready">${ic("person", 18)}Subject</button><button class="ready">${ic("mountain", 18)}Background</button>
+      </div>
+      <div class="ai-grid" style="margin-bottom:12px">
+        <button>${ic("brush", 18)}Brush</button><button>${ic("linear", 18)}Linear</button><button>${ic("radial", 18)}Radial</button>
+      </div>
+      <div class="sec-title">Masks on this photo <span class="faint" style="letter-spacing:0;text-transform:none">Overlay <kbd>O</kbd></span></div>
+      <div class="mask-item on">
+        <div class="hd"><div class="mt" style="width:34px;height:22px;border-radius:3px;border:1px solid var(--border-2);background:linear-gradient(#fff 0 56%,#000 64%)"></div><b>Sky</b><span class="spacer"></span><span class="muted">${ic("invert", 14)}</span><span class="muted">${ic("eye", 14)}</span><span class="muted">${ic("more", 14)}</span></div>
+        <div class="comp">
+          <div class="comp-row"><span class="op">+</span><div class="mtn" style="background:linear-gradient(#fff 0 56%,#000 64%)"></div>AI · Sky <span class="spacer"></span><span class="faint">U²-Net</span></div>
+          <div class="comp-row"><span class="op">−</span><div class="mtn" style="background:radial-gradient(ellipse at 74% 62%,#fff 0 18%,#000 30%)"></div>Brush · erase hill<span class="spacer"></span><span class="faint">2 strokes</span></div>
+          <div class="comp-row"><span class="op">∩</span><div class="mtn" style="background:linear-gradient(#fff 0 40%,#000 75%)"></div>Linear<span class="spacer"></span></div>
+          <div class="comp-row" style="color:var(--faint)"><span class="op">${ic("plus", 12)}</span>Add · Subtract · Intersect</div>
+        </div>
+      </div>
+      <div class="sec-title" style="margin-top:12px">Refine</div>
+      ${sl("Feather", 35, 0, 100, (v) => v, { zero: 0 })}
+      ${sl("Density", 100, 0, 100, (v) => v, { zero: 0, neutral: 100 })}
+      ${sl("Edge detect", 60, 0, 100, (v) => v, { zero: 0 })}
+      <div class="sub" style="margin-top:8px">Range</div>
+      <div class="chips" style="margin:4px 0 8px"><span class="chip">None</span><span class="chip on">Luminance</span><span class="chip">Color</span></div>
+      <div style="height:26px;border-radius:5px;background:linear-gradient(90deg,#000,#fff);position:relative;border:1px solid var(--border-2)">
+        <span style="position:absolute;left:38%;right:4%;top:-1px;bottom:-1px;border:1.5px solid var(--accent);border-radius:4px;background:#f2b24c22"></span>
+      </div>
+      <div class="sec-title" style="margin-top:12px">Other masks</div>
+      <div class="mask-item"><div class="hd" style="color:var(--text-2)"><div class="mt" style="width:34px;height:22px;border-radius:3px;border:1px solid var(--border-2);background:radial-gradient(ellipse at 50% 80%,#fff 0 20%,#000 45%)"></div>Boat glow<span class="spacer"></span><span class="faint">Radial</span></div></div>
+    </div>
+  </div></aside>`;
+}
+
+function filmstrip() {
+  const meta = [[4, "#e5534b", 1], [3, "", 1], [5, "#5cc46a", 0], [2, "", 0], [0, "", 0, 1], [3, "#e8cf4b", 0], [4, "", 1], [5, "#4a79e0", 0]];
+  const order = [...PHOTOS, ...PHOTOS.slice(0, 2)];
+  return `<div class="strip"><div class="strip-head">${ic("album", 13)}<b style="color:var(--text);font-weight:500">Laos 2026</b><span>10 of 248 · 1 selected</span><span class="spacer"></span><span>Filter</span><span style="color:var(--accent)">★★★ and up</span><span>${ic("flag", 12)} Picks</span></div>
+    <div class="thumbs">${order.map((n, i) => { const m = meta[i % 8]; return `<div class="th ${i === 0 ? "on" : ""} ${m[3] ? "rej" : ""}" style="background-image:url(${P}${n}.jpg)">${m[1] ? `<span class="lab" style="background:${m[1]}"></span>` : ""}<span class="stars">${"★".repeat(m[0])}</span>${m[2] ? '<span class="ed"></span>' : ""}</div>`; }).join("")}</div></div>`;
+}
+
+function viewbar(extra = "") {
+  return `<div class="vbar">
+    <div class="seg"><button>Fit</button><button class="on">Fill</button><button>100%</button><button>200%</button></div>
+    <span class="lbl">Compare</span>
+    <div class="seg"><button>Off</button><button class="on">${ic("split", 13)}</button><button>Side by side</button></div>
+    <span class="lbl">Clipping</span>
+    <div class="clip"><span style="color:#4aa3ff">▲</span><span style="color:var(--mask)">▲</span></div>
+    <span class="lbl">Guides</span><div class="seg"><button>${ic("grid", 13)}</button></div>
+    ${extra}
+    <span class="spacer"></span>
+    <span class="muted mono" style="font-size:11px">R 62 · G 71 · B 84 &nbsp;·&nbsp; L 29%</span>
+  </div>`;
+}
+
+function center({ split = true, mask = false } = {}) {
+  return `<section class="center">${viewbar()}
+    <div class="stage">
+      <div class="photo" id="photo">
+        <img src="${MAIN}" style="filter:${EDIT_FILTER}" />
+        ${split ? `<img src="${MAIN}" style="clip-path:inset(0 50% 0 0)" />` : ""}
+        ${mask ? '<canvas id="maskc" width="800" height="450" style="mix-blend-mode:normal"></canvas>' : ""}
+        ${split ? '<span class="tag" style="left:10px">Before</span><span class="tag" style="right:10px">After</span><div class="split"><div class="knob">⇆</div></div>' : ""}
+      </div>
+      ${mask ? `<div class="mask-hud"><span class="sw"></span>Sky mask overlay<span class="faint">·</span><span class="muted">Color</span><span class="faint">·</span><span class="muted">55%</span><kbd>O</kbd> toggle <kbd>⇧O</kbd> cycle</div>` : ""}
+      <div class="loupe-info mono"><span>mekong_storm.NEF</span><span>Nikon D810 · 24–70 f/2.8</span></div>
+      <div class="navigator"><div class="img" style="background-image:url(${MAIN})"><i></i></div><div class="row"><span>Navigator</span><span class="mono">62%</span></div></div>
+    </div>
+    ${filmstrip()}
+  </section>`;
+}
+
+function library() {
+  const meta = [[4, "#e5534b", 1, "NEF", 1], [3, "", 0, "NEF", 1], [5, "#5cc46a", 1, "ARW", 1], [2, "", 0, "JPG", 0], [0, "", -1, "NEF", 0], [3, "#e8cf4b", 0, "NEF", 1], [4, "", 1, "HEIC", 0], [5, "#4a79e0", 1, "DNG", 1]];
+  const all = [...PHOTOS, ...PHOTOS.slice(2, 6)];
+  const cells = all.map((n, i) => { const m = meta[i % 8]; const sel = i === 0 || i === 2 || i === 6; return `
+    <div class="cell ${i === 0 ? "on" : sel ? "sel" : ""}" style="${m[2] === -1 ? "opacity:.4" : ""}">
+      <div class="im" style="background-image:url(${P}${n}.jpg)"><span class="badge">${m[3]}</span>${m[2] === 1 ? `<span class="flag" style="color:var(--accent)">${ic("flag", 11)}</span>` : m[2] === -1 ? '<span class="flag" style="color:var(--mask)">✕</span>' : ""}</div>
+      <div class="meta"><span class="st">${"★".repeat(m[0])}<i>${"★".repeat(5 - m[0])}</i></span>${m[4] ? `<span title="Edited" style="color:var(--accent)">●</span>` : ""}<span class="lb" style="background:${m[1] || "transparent"}"></span></div>
+    </div>`; }).join("");
+  return `<div class="lib">
+    <aside class="left">
+      <div class="search" style="margin:0 0 8px">${ic("search", 13)} Name, camera, keyword</div>
+      <div class="sec-title">Folders</div>
+      <div class="nav-row on">${ic("folder", 14)}Laos 2026<span class="n">248</span></div>
+      <div class="nav-row">${ic("folder", 14)}Iceland 2025<span class="n">612</span></div>
+      <div class="nav-row">${ic("folder", 14)}Portraits<span class="n">97</span></div>
+      <div class="sec-title" style="margin-top:14px">Smart collections</div>
+      <div class="nav-row">${ic("star", 14)}Five stars<span class="n">42</span></div>
+      <div class="nav-row">${ic("flag", 14)}Picks, not exported<span class="n">18</span></div>
+      <div class="nav-row">${ic("clock", 14)}Edited this week<span class="n">23</span></div>
+      <div class="nav-row">${ic("sparkle", 14)}High ISO, needs denoise<span class="n">9</span></div>
+      <div class="sec-title" style="margin-top:14px">Albums</div>
+      <div class="nav-row">${ic("album", 14)}Portfolio<span class="n">36</span></div>
+      <div class="nav-row">${ic("album", 14)}Print order<span class="n">6</span></div>
+      <div style="margin-top:auto;padding:8px;border:1px dashed var(--border-2);border-radius:6px;color:var(--muted);font-size:11px;line-height:1.5">Ratings, flags and albums live in the sidecars and a small index, so folders stay portable. No catalog to migrate.</div>
+    </aside>
+    <section class="grid-wrap">
+      <div class="filterbar">
+        <div class="seg"><button class="on">${ic("grid", 13)}</button><button>${ic("split", 13)}</button><button>Survey</button></div>
+        <span class="lbl faint" style="margin-left:6px">Rating</span><span class="chip on">★★★+</span>
+        <span class="chip">${ic("flag", 11)} Picks</span><span class="chip">Edited</span><span class="chip">RAW</span>
+        <span class="chip"><span style="width:8px;height:8px;border-radius:2px;background:#e5534b"></span><span style="width:8px;height:8px;border-radius:2px;background:#5cc46a"></span> Labels</span>
+        <span class="chip">Camera ${ic("chevD", 10)}</span><span class="chip">Lens ${ic("chevD", 10)}</span>
+        <span class="spacer"></span><span class="muted">Sort</span><div class="select" style="flex:none;width:120px">Capture time ${ic("chevD", 12)}</div>
+      </div>
+      <div style="position:relative;min-height:0;overflow:hidden">
+        <div class="grid">${cells}</div>
+        <div class="batch"><b>3 selected</b><span class="faint">|</span><button>${ic("sync", 13)} Sync edits</button><button>Apply preset</button><button>Rate</button><button>Add to album</button><button class="primary">Export 3…</button></div>
+      </div>
+    </section>
+    <aside class="right" style="padding:10px;gap:8px">
+      <div style="height:160px;border-radius:6px;background:url(${MAIN}) center/cover;filter:${EDIT_FILTER}"></div>
+      <div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">mekong_storm.NEF</b><span class="spacer"></span><span style="color:var(--accent);letter-spacing:1px">★★★★<span class="faint">★</span></span></div>
+      ${histogramBlock().replace('class="histo"', 'class="histo" style="padding:0;border:0"')}
+      <div class="sec-title" style="margin-top:4px">Metadata</div>
+      <div class="info-row"><span>Camera</span><span>Nikon D810</span></div>
+      <div class="info-row"><span>Lens</span><span>24–70 mm f/2.8</span></div>
+      <div class="info-row"><span>Exposure</span><span class="mono">1/250 s · f/8 · ISO 64</span></div>
+      <div class="info-row"><span>Captured</span><span>14 Jul 2026, 17:42</span></div>
+      <div class="info-row"><span>Location</span><span>Don Det, Laos</span></div>
+      <div class="info-row"><span>Edits</span><span>3 layers · 2 AI masks</span></div>
+      <div class="sec-title" style="margin-top:6px">Keywords</div>
+      <div class="kw"><span class="chip">storm</span><span class="chip">Mekong</span><span class="chip">river</span><span class="chip">boat</span><span class="chip" style="color:var(--faint)">${ic("plus", 11)} add</span></div>
+      <div class="sec-title" style="margin-top:6px">Quick develop</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><button>Auto tone</button><button>Copy edits</button><button>Paste edits</button><button>Reset</button></div>
+    </aside>
+  </div>`;
+}
+
+function palette() {
+  return `<div class="overlay-dim"><div class="palette">
+    <div class="in">${ic("search", 18)}<span>sky</span><span class="cur"></span><span class="spacer"></span><kbd>esc</kbd></div>
+    <div class="pgroup">Actions</div>
+    <div class="prow on">${ic("cloud", 16)}<span>Select sky (AI mask)</span><span class="sp"></span><span class="cat">Masks</span><kbd>⇧A</kbd> <kbd>S</kbd></div>
+    <div class="prow">${ic("sparkle", 16)}<span>Replace sky…</span><span class="sp"></span><span class="cat">AI</span></div>
+    <div class="prow">${ic("sun", 16)}<span>Relight scene to match sky</span><span class="sp"></span><span class="cat">AI</span></div>
+    <div class="prow">${ic("invert", 16)}<span>Invert sky mask</span><span class="sp"></span><span class="cat">Masks</span><kbd>⌥I</kbd></div>
+    <div class="pgroup">Presets</div>
+    <div class="prow">${ic("album", 16)}<span>Sky: Storm drama</span><span class="sp"></span><span class="cat">Landscape</span></div>
+    <div class="prow">${ic("album", 16)}<span>Sky: Soft blue</span><span class="sp"></span><span class="cat">Landscape</span></div>
+    <div class="pgroup">Photos</div>
+    <div class="prow">${ic("folder", 16)}<span>Skyline_Vientiane_0412.NEF</span><span class="sp"></span><span class="cat">Laos 2026</span></div>
+    <div class="pfoot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> run</span><span><kbd>⌘↵</kbd> run on all selected</span><span class="spacer"></span><span>Every action is also a shortcut you can rebind</span></div>
+  </div></div>
+  <div class="cheat" style="display:none"></div>`;
+}
+
+// --- render ----------------------------------------------------------------
+const main = document.getElementById("main");
+document.getElementById("top").innerHTML = topbar(view === "library" ? "library" : "edit");
+document.getElementById("status").innerHTML = statusbar(view === "mask" ? '<span>AI masks: 3 ready</span>' : "");
+if (view === "library") {
+  main.className = "lib";
+  main.innerHTML = library().replace(/^\s*<div class="lib">/, "").replace(/<\/div>\s*$/, "");
+} else {
+  main.className = "main";
+  const tool = view === "mask" ? "ai" : "select";
+  const right = view === "color" ? colorPanel() : view === "mask" ? maskPanel() : developPanel();
+  main.innerHTML = rail(tool) + leftPanel() + center({ split: view === "develop" || view === "palette", mask: view === "mask" }) + right;
+  if (view === "develop" || view === "palette") {
+    // the layer stack sits above the sections in the Layers tab; show it on develop
+  }
+  if (view === "palette") main.insertAdjacentHTML("beforeend", palette());
+}
+
+// Real histogram + sky mask from the photo pixels.
+const img = new Image();
+img.src = MAIN;
+img.onload = () => {
+  const c = document.createElement("canvas");
+  c.width = 480; c.height = 270;
+  const x = c.getContext("2d");
+  x.filter = EDIT_FILTER;
+  x.drawImage(img, 0, 0, c.width, c.height);
+  const d = x.getImageData(0, 0, c.width, c.height).data;
+  const H = [new Float32Array(256), new Float32Array(256), new Float32Array(256), new Float32Array(256)];
+  for (let i = 0; i < d.length; i += 4) { H[0][d[i]]++; H[1][d[i + 1]]++; H[2][d[i + 2]]++; H[3][Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2])]++; }
+  const smooth = (h) => h.map((_, i) => { let s = 0, n = 0; for (let k = -3; k <= 3; k++) if (h[i + k] !== undefined) { s += h[i + k]; n++; } return s / n; });
+  const Hs = H.map(smooth);
+  const draw = (cv, alpha = 1) => {
+    if (!cv) return;
+    const g = cv.getContext("2d"); const W = cv.width, Ht = cv.height;
+    const max = Math.max(...Hs.slice(0, 3).flatMap((h) => Array.from(h.slice(4, 252))));
+    g.clearRect(0, 0, W, Ht);
+    g.strokeStyle = "#ffffff10"; g.lineWidth = 1;
+    for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo((W * k) / 4, 0); g.lineTo((W * k) / 4, Ht); g.stroke(); }
+    g.globalCompositeOperation = "screen";
+    [["#e5534b", 0], ["#5cc46a", 1], ["#4a8cff", 2]].forEach(([col, ch]) => {
+      g.fillStyle = col; g.globalAlpha = 0.55 * alpha; g.beginPath(); g.moveTo(0, Ht);
+      for (let i = 0; i < 256; i++) g.lineTo((i / 255) * W, Ht - Math.min(1, Hs[ch][i] / max) * Ht * 0.92);
+      g.lineTo(W, Ht); g.fill();
+    });
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 0.9 * alpha; g.strokeStyle = "#ebe8e2"; g.lineWidth = 1.5; g.beginPath();
+    for (let i = 0; i < 256; i++) g.lineTo((i / 255) * W, Ht - Math.min(1, Hs[3][i] / max) * Ht * 0.92);
+    g.stroke(); g.globalAlpha = 1;
+  };
+  document.querySelectorAll("#hist").forEach((cv) => draw(cv));
+  draw(document.getElementById("chist"), 0.8);
+
+  const mc = document.getElementById("maskc");
+  if (mc) {
+    const W = mc.width, Ht = mc.height;
+    const s = document.createElement("canvas"); s.width = W; s.height = Ht;
+    const sx = s.getContext("2d"); sx.drawImage(img, 0, 0, W, Ht);
+    const src = sx.getImageData(0, 0, W, Ht).data;
+    const out = mc.getContext("2d").createImageData(W, Ht);
+    // Crude stand-in for the AI sky mask: bluish/grey and above the treeline.
+    const horizon = new Float32Array(W);
+    for (let xx = 0; xx < W; xx++) {
+      let yy = 0;
+      for (; yy < Ht; yy++) { const k = (yy * W + xx) * 4; const r = src[k], g = src[k + 1], b = src[k + 2]; if (yy > Ht * 0.3 && ((g > b + 6 && g > r - 4) || (0.3*r+0.6*g+0.1*b < 95 && yy > Ht * 0.52))) break; }
+      horizon[xx] = yy;
+    }
+    for (let xx = 0; xx < W; xx++) { let s2 = 0, n = 0; for (let k = -6; k <= 6; k++) { const v = horizon[xx + k]; if (v !== undefined) { s2 += v; n++; } } horizon[xx] = Math.min(s2 / n, Ht * 0.66); }
+    for (let yy = 0; yy < Ht; yy++) for (let xx = 0; xx < W; xx++) {
+      const k = (yy * W + xx) * 4; const m = Math.max(0, Math.min(1, (horizon[xx] - yy) / 6));
+      out.data[k] = 224; out.data[k + 1] = 82; out.data[k + 2] = 74; out.data[k + 3] = m * 140;
+    }
+    mc.getContext("2d").putImageData(out, 0, 0);
+  }
+};
+</script>
+</body>
+</html>
