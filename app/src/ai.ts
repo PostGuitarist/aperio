@@ -235,7 +235,7 @@ export function addEffect(info: PluginInfo) {
   commit();
 }
 
-// --- Denoise (in the Adjust tab) -----------------------------------------------------
+// --- Denoise (in the Edit tab's Detail section) -----------------------------------------------------
 
 /** The Noise group: AI denoise on the base layer, which runs on the
  * full-size photo in the background. Returns a sync function. The group
