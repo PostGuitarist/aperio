@@ -24,15 +24,31 @@ You can also open a single file from the editor with **Open…**. Aperio reads:
 - JPEG, PNG, and TIFF
 - HEIC and HEIF, such as iPhone photos, using your system's own decoder. On Windows this needs Microsoft's **HEIF Image Extensions** and **HEVC Video Extensions** from the Microsoft Store. On Linux it needs libheif and its HEVC plugin (`sudo apt install libheif1 libheif-plugin-libde265` on Debian or Ubuntu).
 
-Ctrl/⌘+1 switches to the Library and Ctrl/⌘+2 to the editor.
+Ctrl/⌘+1 switches to the Library and Ctrl/⌘+2 to the editor (**Develop**). In the editor, the filmstrip under the photo shows the rest of the folder; click a photo or press ← and → to move between them.
 
 ## 3. Adjust
 
-The **Adjust** tab has exposure, contrast, highlights, shadows, whites, blacks, white balance (temperature and tint), vibrance, and saturation. **Curves** edits the tone curve for RGB together, for luminance only, or for red, green, and blue separately. **Crop** (C) crops and straightens.
+The **Edit** tab on the right is split into sections you can fold away. A dot next to a section's name means something in it has changed, and its ↺ button resets it.
 
-**Noise** removes the grain from high-ISO photos, such as shots taken indoors or at night. Tick **AI denoise** (it needs the AI models, see step 5), then set **Amount** and **Keep detail**. Denoise runs once on the full-size photo in the background, which can take a few minutes on a laptop; the status bar shows its progress, and you can keep editing while it works. After that, moving its sliders is quick.
+- **Light**: exposure, contrast, highlights, shadows, whites, and blacks.
+- **Color**: white balance (temperature and tint), vibrance, and saturation.
+- **Tone curve**: RGB together, luminance only, or red, green, and blue separately.
+- **Detail**: AI denoise.
 
-Press **\\** or click **Before / after** to compare with the original. Undo and redo are Ctrl/⌘+Z and Ctrl/⌘+Shift+Z.
+**Crop** (C) on the tool rail crops and straightens.
+
+**AI denoise** in the Detail section removes the grain from high-ISO photos, such as shots taken indoors or at night. Tick **AI denoise** (it needs the AI models, see step 5), then set **Amount** and **Keep detail**. Denoise runs once on the full-size photo in the background, which can take a few minutes on a laptop; the status bar shows its progress, and you can keep editing while it works. After that, moving its sliders is quick.
+
+The bar over the photo has the viewing tools:
+
+- **Zoom**: fit, 2× or 4× (Z toggles 2×). Drag the background, or hold the space bar and drag, to pan.
+- **Compare**: a split view with a divider you can drag (Y), or before and after side by side (Shift+Y). **\\** flips the whole photo to the original.
+- **Clipping** (J): pure white highlights in red and pure black shadows in blue. The triangles on the histogram light up when either end clips.
+- **Guides** (Shift+G): a rule-of-thirds grid.
+
+**History** on the left lists every change; click one to see the photo as it was then. Undo and redo are Ctrl/⌘+Z and Ctrl/⌘+Shift+Z.
+
+Press Ctrl/⌘+K to search every command by name, and **?** for the list of keyboard shortcuts. Tab hides the side panels and F hides the filmstrip.
 
 Every change is saved as you go, to a small text file next to the photo (`photo.jpg.aperio.json`). Your original file is never changed. Copy the photo and its sidecar together and the edit goes with them. The format is documented in [sidecar-format.md](sidecar-format.md).
 
@@ -44,7 +60,7 @@ Masks let you adjust one part of the photo. Each mask lives on its own **layer**
 - **Gradient** (G): a linear fade, such as darkening a bright sky.
 - **Radial** (R): an ellipse, such as lifting a face or a flower.
 
-Drag the handles on the photo to place the mask. While a layer is selected, the Adjust and Curves tabs change that layer only.
+Drag the handles on the photo to place the mask. While a layer is selected, the Edit tab changes that layer only.
 
 ![A subject layer, with its AI mask shown in red](images/layers-subject.jpg)
 

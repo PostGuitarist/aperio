@@ -18,8 +18,9 @@ import {
   writeCrop,
   writeCurve,
 } from "./doc";
-import { buildAi, denoiseControls, pluginLayerControls } from "./ai";
+import { DENOISE, buildAi, denoiseControls, pluginLayerControls } from "./ai";
 import { aspectFor, boxForAspect, currentBox, fitInside, setBox } from "./overlay";
+import { invoke } from "@tauri-apps/api/core";
 import { type Tab, changed, commit, editor, onUpdate, refresh } from "./state";
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]) {
@@ -82,6 +83,58 @@ export function group(parent: HTMLElement, title: string, onReset?: () => void) 
   return body;
 }
 
+const SECTIONS_KEY = "aperio.sections";
+const closed = new Set<string>(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+/** A collapsible part of the Edit tab. The header shows a dot while anything
+ * in it differs from neutral, and a reset button. Returns its body and a
+ * function that refreshes the dot. */
+export function section(parent: HTMLElement, title: string, o: { isChanged: () => boolean; onReset: () => void }) {
+  const chevron = h("span", { className: "chev" });
+  const dot = h("span", { className: "changed-dot", title: "Changed" });
+  const reset = h("button", { type: "button", className: "icon reset", title: `Reset ${title.toLowerCase()}`, textContent: "↺" });
+  reset.addEventListener("click", (e) => {
+    e.stopPropagation();
+    o.onReset();
+  });
+  const head = h("button", { type: "button", className: "section-head" }, chevron, h("span", { className: "title" }, title), dot);
+  const body = h("div", { className: "section-body" });
+  const wrap = h("section", { className: "section" }, h("div", { className: "section-bar" }, head, reset), body);
+  const show = () => {
+    const open = !closed.has(title);
+    wrap.classList.toggle("open", open);
+    body.hidden = !open;
+  };
+  head.addEventListener("click", () => {
+    if (closed.has(title)) closed.delete(title);
+    else closed.add(title);
+    try {
+      localStorage.setItem(SECTIONS_KEY, JSON.stringify([...closed]));
+    } catch {
+      // Not remembered, then.
+    }
+    show();
+  });
+  show();
+  parent.append(wrap);
+  return {
+    body,
+    sync: () => {
+      const on = !!editor.opened && o.isChanged();
+      dot.hidden = !on;
+      reset.disabled = !on;
+    },
+  };
+}
+
 const layer = () => editor.doc.layers[editor.selected];
 
 function editingNote() {
@@ -96,13 +149,10 @@ function editingNote() {
   };
 }
 
-// --- Adjust ---------------------------------------------------------------------
+// --- Edit ---------------------------------------------------------------------
 
-function buildAdjust(root: HTMLElement) {
+function buildEdit(root: HTMLElement) {
   const syncs: Array<() => void> = [];
-  const editing = editingNote();
-  root.append(editing.note);
-  syncs.push(editing.sync);
 
   const adj = () => (editor.opened ? readAdjustments(layer()) : { ...NEUTRAL });
   const setter = (key: keyof Adjustments) => (v: number) => writeAdjustments(layer(), { ...adj(), [key]: v });
@@ -115,21 +165,45 @@ function buildAdjust(root: HTMLElement) {
   const add = (body: HTMLElement, key: keyof Adjustments, label: string, min: number, max: number, step: number, format: (v: number) => string, track?: string) =>
     syncs.push(slider(body, { label, min, max, step, neutral: NEUTRAL[key], format, get: () => adj()[key], set: setter(key), track }));
 
-  const light = group(root, "Light", resetKeys(["exposure", "contrast", "highlights", "shadows", "whites", "blacks"]));
-  add(light, "exposure", "Exposure", -5, 5, 0.05, (v) => `${signed(2)(v)} EV`);
-  add(light, "contrast", "Contrast", -1, 1, 0.01, signed(2));
-  add(light, "highlights", "Highlights", -1, 1, 0.01, signed(2));
-  add(light, "shadows", "Shadows", -1, 1, 0.01, signed(2));
-  add(light, "whites", "Whites", -1, 1, 0.01, signed(2));
-  add(light, "blacks", "Blacks", -1, 1, 0.01, signed(2));
+  const differs = (keys: (keyof Adjustments)[]) => () => keys.some((k) => adj()[k] !== NEUTRAL[k]);
+  const LIGHT: (keyof Adjustments)[] = ["exposure", "contrast", "highlights", "shadows", "whites", "blacks"];
+  const COLOR: (keyof Adjustments)[] = ["temperature", "tint", "vibrance", "saturation"];
 
-  const color = group(root, "Color", resetKeys(["temperature", "tint", "vibrance", "saturation"]));
-  add(color, "temperature", "Temperature", 2000, 12000, 50, (v) => `${v} K`, "temp");
-  add(color, "tint", "Tint", -1, 1, 0.01, signed(2), "tint");
-  add(color, "vibrance", "Vibrance", -1, 1, 0.01, signed(2));
-  add(color, "saturation", "Saturation", -1, 1, 0.01, signed(2));
+  const light = section(root, "Light", { isChanged: differs(LIGHT), onReset: resetKeys(LIGHT) });
+  syncs.push(light.sync);
+  add(light.body, "exposure", "Exposure", -5, 5, 0.05, (v) => `${signed(2)(v)} EV`);
+  add(light.body, "contrast", "Contrast", -1, 1, 0.01, signed(2));
+  add(light.body, "highlights", "Highlights", -1, 1, 0.01, signed(2));
+  add(light.body, "shadows", "Shadows", -1, 1, 0.01, signed(2));
+  add(light.body, "whites", "Whites", -1, 1, 0.01, signed(2));
+  add(light.body, "blacks", "Blacks", -1, 1, 0.01, signed(2));
 
-  syncs.push(denoiseControls(root));
+  const color = section(root, "Color", { isChanged: differs(COLOR), onReset: resetKeys(COLOR) });
+  syncs.push(color.sync);
+  add(color.body, "temperature", "Temperature", 2000, 12000, 50, (v) => `${v} K`, "temp");
+  add(color.body, "tint", "Tint", -1, 1, 0.01, signed(2), "tint");
+  add(color.body, "vibrance", "Vibrance", -1, 1, 0.01, signed(2));
+  add(color.body, "saturation", "Saturation", -1, 1, 0.01, signed(2));
+
+  const curve = section(root, "Tone curve", {
+    isChanged: () => layer().operations.some((o) => o.op === "curve"),
+    onReset: () => {
+      for (const [ch] of CHANNELS) writeCurve(layer(), ch, IDENTITY);
+      commit();
+    },
+  });
+  syncs.push(curve.sync, buildCurves(curve.body));
+
+  const hasDenoise = () => editor.doc.layers[0].operations.some((o) => o.op === "plugin" && o.plugin === DENOISE);
+  const detail = section(root, "Detail", {
+    isChanged: hasDenoise,
+    onReset: () => {
+      const base = editor.doc.layers[0];
+      base.operations = base.operations.filter((o) => !(o.op === "plugin" && o.plugin === DENOISE));
+      commit();
+    },
+  });
+  syncs.push(detail.sync, denoiseControls(detail.body));
 
   return () => syncs.forEach((s) => s());
 }
@@ -147,8 +221,6 @@ const CURVE_SIZE = 256;
 const GRAB = 10;
 
 function buildCurves(root: HTMLElement) {
-  const editing = editingNote();
-  root.append(editing.note);
 
   const tabs = h("div", { className: "segmented" });
   const buttons = CHANNELS.map(([ch, label]) => {
@@ -169,7 +241,7 @@ function buildCurves(root: HTMLElement) {
   svg.classList.add("curve");
   root.append(h("div", { className: "curve-wrap" }, svg));
   root.append(h("p", { className: "hint muted" }, "Click to add a point, drag to move it, and double-click or drag it off the graph to remove it."));
-  const reset = h("button", { type: "button", className: "link", textContent: "Reset curve" });
+  const reset = h("button", { type: "button", className: "link", textContent: "Reset this channel" });
   reset.addEventListener("click", () => {
     writeCurve(layer(), editor.channel, IDENTITY);
     commit();
@@ -263,7 +335,6 @@ function buildCurves(root: HTMLElement) {
   });
 
   return () => {
-    editing.sync();
     for (const b of buttons) b.classList.toggle("active", b.dataset.channel === editor.channel);
     if (dragging < 0) points = editor.opened ? readCurve(layer(), editor.channel) : IDENTITY;
     draw();
@@ -328,7 +399,7 @@ function buildCrop(root: HTMLElement) {
     commit();
   });
   const done = h("button", { type: "button", className: "primary", textContent: "Done" });
-  done.addEventListener("click", () => showTab("adjust"));
+  done.addEventListener("click", () => showTab("edit"));
   actions.append(reset, done);
   root.append(actions, h("p", { className: "hint muted" }, "Drag the corners or the middle of the frame on the photo. The crop is stored as parameters; the original is never changed."));
 
@@ -465,7 +536,7 @@ function buildLayers(root: HTMLElement) {
       body.append(h("label", { className: "check" }, show, "Show mask overlay"));
       syncProps.push(() => (show.checked = editor.showMask));
     }
-    if (editor.selected > 0) body.append(h("p", { className: "hint muted" }, "The Adjust and Curves tabs change this layer while it's selected."));
+    if (editor.selected > 0) body.append(h("p", { className: "hint muted" }, "The Edit tab changes this layer while it's selected."));
   };
 
   return () => {
@@ -482,12 +553,86 @@ function buildLayers(root: HTMLElement) {
 
 // --- Tabs -----------------------------------------------------------------------------
 
-const TABS: [Tab, string, (root: HTMLElement) => () => void][] = [
-  ["adjust", "Adjust", buildAdjust],
-  ["curves", "Curves", buildCurves],
-  ["crop", "Crop", buildCrop],
+// --- Info -----------------------------------------------------------------------------
+
+export interface Details {
+  width: number | null;
+  height: number | null;
+  camera: string | null;
+  lens: string | null;
+  exposure: string | null;
+  captured: string | null;
+}
+
+/** Camera details of the open photo, fetched once per photo. */
+let detailsFor = "";
+let details: Promise<Details | null> = Promise.resolve(null);
+export function photoDetails(): Promise<Details | null> {
+  const path = editor.path;
+  if (!path) return Promise.resolve(null);
+  if (path !== detailsFor) {
+    detailsFor = path;
+    details = invoke<Details>("photo_details", { path }).catch(() => null);
+  }
+  return details;
+}
+
+function buildInfo(root: HTMLElement) {
+  const list = h("dl", { className: "facts info" });
+  const edits = h("dl", { className: "facts info" });
+  const head = (title: string) => h("div", { className: "group-head" }, h("h3", {}, title));
+  root.append(head("Photo"), list, head("Edits"), edits);
+  const fill = (dl: HTMLElement, rows: [string, string | null | undefined][]) =>
+    dl.replaceChildren(...rows.filter(([, v]) => v).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v!)]));
+  let shown = "";
+  return () => {
+    const o = editor.opened;
+    if (!o) return fill(list, []);
+    const layers = editor.doc.layers;
+    const masks = layers.slice(1);
+    fill(edits, [
+      ["Layers", String(layers.length)],
+      ["Masks", masks.length ? masks.map((l) => maskLabel(l.mask)).join(", ") : "None"],
+      ["Sidecar", `${o.file_name}.aperio.json`],
+    ]);
+    if (shown === editor.path) return;
+    shown = editor.path ?? "";
+    fill(list, [
+      ["File", o.file_name],
+      ["Size", `${o.width} × ${o.height}`],
+      ["Folder", o.folder],
+    ]);
+    void photoDetails().then((d) => {
+      if (!d || shown !== editor.path) return;
+      fill(list, [
+        ["File", o.file_name],
+        ["Size", `${o.width} × ${o.height}`],
+        ["Camera", d.camera],
+        ["Lens", d.lens],
+        ["Exposure", d.exposure],
+        ["Captured", d.captured],
+        ["Folder", o.folder],
+      ]);
+    });
+  };
+}
+
+// --- Tabs -----------------------------------------------------------------------------
+
+const ICONS: Record<string, string> = {
+  edit: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  ai: '<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/>',
+};
+
+/** Tabs in the bar; Crop is opened from the tool rail instead. */
+const TABS: [Tab, string | null, (root: HTMLElement) => () => void][] = [
+  ["edit", "Edit", buildEdit],
   ["layers", "Layers", buildLayers],
   ["ai", "AI", buildAi],
+  ["info", "Info", buildInfo],
+  ["crop", null, buildCrop],
 ];
 
 export function showTab(tab: Tab) {
@@ -497,18 +642,27 @@ export function showTab(tab: Tab) {
 
 export function buildPanels(tabBar: HTMLElement, body: HTMLElement) {
   const pages = TABS.map(([tab, label, build]) => {
-    const button = h("button", { type: "button", textContent: label });
-    button.addEventListener("click", () => showTab(tab));
-    tabBar.append(button);
-    const page = h("section", { className: "page" });
+    let button: HTMLButtonElement | null = null;
+    if (label) {
+      button = h("button", { type: "button", title: label });
+      button.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[tab]}</svg><span>${label}</span>`;
+      button.addEventListener("click", () => showTab(tab));
+      tabBar.append(button);
+    }
+    const page = h("section", { className: `page ${tab}` });
+    if (tab === "crop") page.prepend(h("div", { className: "page-title" }, "Crop & straighten"));
     body.append(page);
     return { tab, button, page, sync: build(page) };
   });
+  // Layer edits apply to the selected layer; say which, above every tab.
+  const editing = editingNote();
+  body.prepend(editing.note);
   onUpdate(() => {
+    editing.sync();
     for (const p of pages) {
       const active = p.tab === editor.tab;
-      p.button.classList.toggle("active", active);
-      p.button.disabled = !editor.opened;
+      p.button?.classList.toggle("active", active);
+      if (p.button) p.button.disabled = !editor.opened;
       p.page.hidden = !active;
       if (active) p.sync();
     }

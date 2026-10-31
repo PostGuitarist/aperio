@@ -11,14 +11,18 @@
     <header class="topbar">
       <div class="logo"><span class="mark"></span>Aperio</div>
       <div class="modes" id="modes" role="tablist" aria-label="Screen">
-        <button type="button" role="tab" data-mode="library">Library</button>
-        <button type="button" role="tab" data-mode="edit">Edit</button>
+        <button type="button" role="tab" data-mode="library" title="Library (Ctrl+1)">Library</button>
+        <button type="button" role="tab" data-mode="edit" title="Develop (Ctrl+2)">Develop</button>
       </div>
-      <button id="open" type="button" class="edit-only">Open…</button>
       <div id="title" class="file muted edit-only">No photo open</div>
-      <span class="spacer library-only"></span>
+      <span class="spacer"></span>
       <input id="search" class="search library-only" type="search" placeholder="Search file names" aria-label="Search file names" />
+      <button id="command" type="button" class="command edit-only" title="Command palette">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></svg>
+        <span>Search commands…</span><kbd id="command-key">Ctrl+K</kbd>
+      </button>
       <button id="open-folder" type="button" class="primary library-only">Open folder…</button>
+      <button id="open" type="button" class="edit-only" title="Open (Ctrl+O)">Open…</button>
       <div class="history edit-only">
         <button id="undo" type="button" class="icon" title="Undo (Ctrl+Z)" disabled>↶</button>
         <button id="redo" type="button" class="icon" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
@@ -28,50 +32,70 @@
     <main class="library" id="library" hidden></main>
     <main class="shell" id="editor">
       <nav class="rail" id="rail">
-        <button type="button" data-tool="select" title="Adjust (V)">
-          <svg viewBox="0 0 24 24"><path d="M6 3l12 9-5.5 1L15 20l-2.5 1-2.6-7L6 17z" /></svg>
+        <button type="button" data-tool="select" title="Edit (V)">
+          <svg viewBox="0 0 24 24"><path d="M6 3l12 9-5.5 1L15 20l-2.5 1-2.6-7L6 17z" /></svg><kbd>V</kbd>
         </button>
         <button type="button" data-tool="crop" title="Crop (C)">
-          <svg viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14" /></svg>
+          <svg viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14" /></svg><kbd>C</kbd>
         </button>
         <span class="sep"></span>
         <button type="button" data-tool="brush" title="New brush mask (B)">
-          <svg viewBox="0 0 24 24"><path d="M14 4l6 6-8 8-4 1 1-4zM5 20c-1 0-2-1-1-2" /></svg>
+          <svg viewBox="0 0 24 24"><path d="M14 4l6 6-8 8-4 1 1-4zM5 20c-1 0-2-1-1-2" /></svg><kbd>B</kbd>
         </button>
         <button type="button" data-tool="linear" title="New gradient mask (G)">
-          <svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" /><path d="M12 5v14" class="thin" /></svg>
+          <svg viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" /><path d="M12 5v14" class="thin" /></svg><kbd>G</kbd>
         </button>
         <button type="button" data-tool="radial" title="New radial mask (R)">
-          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6" /><ellipse cx="12" cy="12" rx="4" ry="3" class="thin" /></svg>
+          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6" /><ellipse cx="12" cy="12" rx="4" ry="3" class="thin" /></svg><kbd>R</kbd>
         </button>
         <span class="sep"></span>
         <button type="button" data-tool="ai" title="AI tools (A)" disabled>
-          <svg viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg>
+          <svg viewBox="0 0 24 24"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" /></svg><kbd>A</kbd>
+        </button>
+        <span class="grow"></span>
+        <button type="button" id="toggle-panels" title="Hide panels (Tab)">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 5v14" /></svg>
         </button>
       </nav>
+      <aside class="side-left" id="side-left"></aside>
       <section class="canvas">
+        <div class="viewbar" id="viewbar"></div>
         <div id="stage" class="stage">
-          <div id="frame" class="frame" hidden>
-            <img id="preview" alt="" />
-            <svg id="overlay"></svg>
+          <div class="frames" id="frames">
+            <div id="before-frame" class="frame before" hidden><img id="before-side" alt="" /><span class="tag">Before</span></div>
+            <div id="frame" class="frame" hidden>
+              <img id="preview" alt="" />
+              <img id="before-split" class="split-before" alt="" hidden />
+              <canvas id="clipping" hidden></canvas>
+              <div id="guides" class="guides" hidden></div>
+              <svg id="overlay"></svg>
+              <div id="divider" class="divider" hidden><span class="tag left">Before</span><span class="tag right">After</span><span class="knob">⇆</span></div>
+              <span id="side-tag" class="tag after" hidden>After</span>
+            </div>
           </div>
           <p id="status" class="muted">Open a RAW, JPEG, PNG, TIFF, or HEIC to start editing.</p>
         </div>
-        <footer class="statusbar">
-          <button id="before" type="button" disabled>Before / after</button>
-          <span class="muted">Fit</span>
-          <span id="notice" class="notice"></span>
-          <span class="spacer"></span>
-          <span id="background" class="muted mono"></span>
-          <span id="timing" class="muted mono"></span>
-          <span id="saved" class="muted"></span>
-        </footer>
+        <div class="filmstrip" id="filmstrip"></div>
       </section>
       <aside class="panel">
-        <canvas id="histogram" width="512" height="160"></canvas>
+        <div class="histo">
+          <canvas id="histogram" width="600" height="180"></canvas>
+          <button id="clip-low" type="button" class="clip low" title="Shadow clipping (J)"></button>
+          <button id="clip-high" type="button" class="clip high" title="Highlight clipping (J)"></button>
+        </div>
+        <div id="exif" class="exif mono"></div>
         <div id="tabs" class="tabs"></div>
         <div id="tab-body" class="tab-body"></div>
       </aside>
     </main>
+    <footer class="statusbar">
+      <span id="gpu" class="muted"></span>
+      <span id="timing" class="muted mono"></span>
+      <span id="saved" class="muted"></span>
+      <span id="notice" class="notice"></span>
+      <span class="spacer"></span>
+      <span id="readout" class="muted mono"></span>
+      <button id="shortcuts" type="button" class="link" title="Keyboard shortcuts (?)">Shortcuts <kbd>?</kbd></button>
+    </footer>
   </body>
 </html>
