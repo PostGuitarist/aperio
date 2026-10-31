@@ -16,13 +16,19 @@ To build Aperio yourself instead, see [Building](../README.md#building) in the R
 
 ## 2. Open a photo
 
-Aperio starts in the **Library**. Click **Open folder…** (Ctrl/⌘+O) and choose a folder of photos. Aperio reads the folder where it is: there's no import step and no catalog. Click a photo to see its camera details, then **Open in editor**, or double-click it.
+Aperio starts in the **Library**. Click **Open folder…** (Ctrl/⌘+O) and choose a folder of photos. Aperio reads the folder where it is: there's no import step. Click a photo to see its camera details, then **Open in editor**, or double-click it.
 
 You can also open a single file from the editor with **Open…**. Aperio reads:
 
 - RAW files from most cameras: CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG, PEF, SRW
 - JPEG, PNG, and TIFF
 - HEIC and HEIF, such as iPhone photos, using your system's own decoder. On Windows this needs Microsoft's **HEIF Image Extensions** and **HEVC Video Extensions** from the Microsoft Store. On Linux it needs libheif and its HEVC plugin (`sudo apt install libheif1 libheif-plugin-libde265` on Debian or Ubuntu).
+
+**Sorting your photos.** In the Library, select a photo and press **1**–**5** to rate it (**0** clears the rating), **P** to flag it as a pick, **X** to reject it, and **U** to unflag it. **6**–**9** add a red, yellow, green, or blue label. Ctrl/⌘-click or Shift-click selects several photos, and Ctrl/⌘+A selects them all; ratings, flags, and labels then apply to every selected photo. The filters on the left show only photos with a given rating, flag, or label. All of these are stored in each photo's sidecar, so they move with the photo.
+
+**Albums** collect photos from any folder: select some, then pick an album under **Add to album…** (or click **+** next to Albums to make a new one from the selection). **Smart collections** fill themselves: click **+**, choose rules such as "4 stars or more" or "Picks, not edited", and they show every matching photo in your recent folders.
+
+**Syncing edits.** Edit one photo, then go back to the Library and select it together with others. The photo shown in the panel on the right is the source. Under **Sync edits**, tick the parts to copy (light, color, effects, curves, denoise, crop, or masked layers) and click **Sync**. Only the ticked parts change on the other photos.
 
 Ctrl/⌘+1 switches to the Library and Ctrl/⌘+2 to the editor (**Develop**). In the editor, the filmstrip under the photo shows the rest of the folder; click a photo or press ← and → to move between them.
 

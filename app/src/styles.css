@@ -2361,3 +2361,268 @@ ul.preset-list li:hover .icon,
 ul.snapshot-list li:hover .icon {
   visibility: visible;
 }
+
+/* --- Library: marks, collections, selection, sync -------------------------- */
+
+:root {
+  --label-red: #e0524a;
+  --label-yellow: #e2c044;
+  --label-green: #4fb36a;
+  --label-blue: #4a8fe0;
+  --label-purple: #9a6ae0;
+}
+
+.dot.red, .label-bar.red { background: var(--label-red); }
+.dot.yellow, .label-bar.yellow { background: var(--label-yellow); }
+.dot.green, .label-bar.green { background: var(--label-green); }
+.dot.blue, .label-bar.blue { background: var(--label-blue); }
+.dot.purple, .label-bar.purple { background: var(--label-purple); }
+
+.lib-side h4.with-add {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 22px;
+}
+
+.lib-side h4.with-add .icon,
+ul.folders .remove {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+ul.folders li {
+  position: relative;
+}
+
+ul.folders .remove {
+  position: absolute;
+  right: 4px;
+  top: 6px;
+  visibility: hidden;
+}
+
+ul.folders li:hover .remove {
+  visibility: visible;
+}
+
+ul.folders li:hover .count {
+  visibility: hidden;
+}
+
+.lib-side form.inline-name,
+.lib-side form.smart-form {
+  margin: 0 0 8px;
+}
+
+form.smart-form {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+form.smart-form[hidden] {
+  display: none;
+}
+
+form.smart-form input,
+form.smart-form select,
+.album-tools select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.stars {
+  display: flex;
+  gap: 2px;
+}
+
+.stars button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #4a4d56;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.stars button.on {
+  color: var(--accent);
+}
+
+.lib-side .stars.filter {
+  padding: 2px 6px 6px;
+}
+
+.lib-side .segmented.small,
+.marks .segmented.small {
+  margin: 4px 0 8px;
+}
+
+.segmented.small button {
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+.labels {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.marks .labels {
+  padding: 4px 0 0;
+}
+
+.labels .dot {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  opacity: 0.55;
+}
+
+.labels .dot.on {
+  border-color: var(--text);
+  opacity: 1;
+}
+
+.labels .dot:hover {
+  opacity: 1;
+}
+
+.marks {
+  display: grid;
+  gap: 2px;
+}
+
+.lib-inspector .marks button,
+.lib-inspector .album-tools button,
+.lib-inspector .sync button:not(.primary) {
+  height: auto;
+}
+
+.lib-inspector .notice {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.lib-inspector .hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.album-tools {
+  display: grid;
+  gap: 6px;
+}
+
+.album-tools button {
+  padding: 6px;
+  font-size: 12px;
+}
+
+.sync {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.sync h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sync p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sync-parts {
+  display: grid;
+  gap: 2px;
+}
+
+.sync-parts .check {
+  margin: 0;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.tile .badge.rating {
+  left: 8px;
+  bottom: 8px;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.tile .badge.flag {
+  right: 8px;
+  top: 8px;
+}
+
+.tile .badge.flag.pick {
+  color: var(--accent);
+}
+
+.tile .badge.flag.reject {
+  color: var(--label-red);
+}
+
+.tile .label-bar,
+.filmstrip .thumb .label-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+}
+
+.tile.rejected img,
+.filmstrip .thumb.rejected {
+  filter: grayscale(0.7) brightness(0.45);
+}
+
+.lib-inspector .marks .labels .dot {
+  height: 16px;
+}
+
+.tile.selected.primary {
+  outline-width: 3px;
+}
+
+.filmstrip .thumb .rating {
+  position: absolute;
+  left: 4px;
+  bottom: 5px;
+  color: var(--accent);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 3px rgb(0 0 0 / 0.9);
+}

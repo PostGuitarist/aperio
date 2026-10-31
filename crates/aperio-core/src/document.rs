@@ -22,6 +22,35 @@ pub struct EditDocument {
     /// Named versions of this edit to come back to. Not rendered.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snapshots: Vec<Snapshot>,
+    /// Star rating from the Library, 0 (none) to 5.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rating: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flag: Option<Flag>,
+    /// Color label from the Library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<Label>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Flag {
+    Pick,
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Label {
+    Red,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+}
+
+fn is_zero(v: &u8) -> bool {
+    *v == 0
 }
 
 /// A saved copy of an edit's layers.
@@ -113,7 +142,20 @@ impl EditDocument {
             source,
             layers: vec![Layer::new("Base")],
             snapshots: Vec::new(),
+            rating: 0,
+            flag: None,
+            label: None,
         }
+    }
+
+    /// True when the document changes how the photo looks: more than an
+    /// empty base layer. Ratings, flags, labels, and snapshots don't count.
+    pub fn has_edits(&self) -> bool {
+        self.layers.len() > 1
+            || self
+                .layers
+                .first()
+                .is_some_and(|l| !l.operations.is_empty() || l.mask.is_some())
     }
 
     pub fn from_json(json: &str) -> Result<Self> {
@@ -236,6 +278,24 @@ mod tests {
         });
         let json = doc.to_json().unwrap();
         assert_eq!(EditDocument::from_json(&json).unwrap(), doc);
+    }
+
+    #[test]
+    fn library_marks_round_trip_and_do_not_count_as_edits() {
+        let mut doc = EditDocument::new(SourceRef {
+            file_name: "a.jpg".into(),
+            size_bytes: 1,
+            sha256: None,
+        });
+        assert!(!doc.to_json().unwrap().contains("rating"));
+        doc.rating = 4;
+        doc.flag = Some(Flag::Pick);
+        doc.label = Some(Label::Green);
+        let json = doc.to_json().unwrap();
+        assert!(json.contains("\"flag\": \"pick\""));
+        assert_eq!(EditDocument::from_json(&json).unwrap(), doc);
+        assert!(!doc.has_edits());
+        assert!(sample().has_edits());
     }
 
     #[test]

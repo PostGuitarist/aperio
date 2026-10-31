@@ -10,7 +10,8 @@ pub mod mask;
 pub mod ops;
 
 pub use document::{
-    sidecar_path, BlendMode, EditDocument, Layer, Snapshot, SourceRef, SIDECAR_EXTENSION,
+    sidecar_path, BlendMode, EditDocument, Flag, Label, Layer, Snapshot, SourceRef,
+    SIDECAR_EXTENSION,
 };
 pub use mask::Mask;
 pub use ops::Operation;

@@ -4,8 +4,9 @@
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use aperio_core::sidecar_path;
-use aperio_render::browse;
+use aperio_core::{sidecar_path, EditDocument, Flag, Label};
+use aperio_render::color::srgb_to_linear;
+use aperio_render::{browse, srgb8, LinearImage, Renderer};
 use image::RgbImage;
 use serde::Serialize;
 
@@ -28,8 +29,12 @@ pub struct Photo {
     pub size_bytes: u64,
     /// Last modified, in milliseconds since 1970.
     pub modified_ms: u64,
-    /// Has an Aperio sidecar.
+    /// Has an Aperio sidecar that changes how the photo looks.
     pub edited: bool,
+    /// Rating, flag, and color label, from the sidecar.
+    pub rating: u8,
+    pub flag: Option<Flag>,
+    pub label: Option<Label>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,19 +72,9 @@ pub fn list(dir: &Path) -> std::io::Result<Folder> {
         if file_name.starts_with('.') {
             continue;
         }
-        let Some(kind) = kind(&path) else { continue };
-        let Ok(meta) = entry.metadata() else { continue };
-        if !meta.is_file() {
-            continue;
+        if let Some(photo) = photo(path, file_name, entry.metadata()) {
+            photos.push(photo);
         }
-        photos.push(Photo {
-            edited: sidecar_path(&path).is_file(),
-            modified_ms: modified_ms(&meta),
-            size_bytes: meta.len(),
-            path,
-            file_name,
-            kind,
-        });
     }
     photos.sort_by_key(|p| p.file_name.to_lowercase());
     Ok(Folder {
@@ -90,6 +85,50 @@ pub fn list(dir: &Path) -> std::io::Result<Folder> {
         path: dir.to_path_buf(),
         photos,
     })
+}
+
+/// One photo's entry, or `None` if it isn't a photo Aperio can open.
+fn photo(
+    path: PathBuf,
+    file_name: String,
+    meta: std::io::Result<std::fs::Metadata>,
+) -> Option<Photo> {
+    let kind = kind(&path)?;
+    let meta = meta.ok().filter(|m| m.is_file())?;
+    let sidecar = sidecar_path(&path);
+    let (edited, rating, flag, label) = if !sidecar.is_file() {
+        (false, 0, None, None)
+    } else {
+        match EditDocument::load(&sidecar) {
+            Ok(doc) => (doc.has_edits(), doc.rating, doc.flag, doc.label),
+            // Unreadable, but something wrote it: say it's edited so the
+            // badge sends the user to look.
+            Err(_) => (true, 0, None, None),
+        }
+    };
+    Some(Photo {
+        edited,
+        rating,
+        flag,
+        label,
+        modified_ms: modified_ms(&meta),
+        size_bytes: meta.len(),
+        path,
+        file_name,
+        kind,
+    })
+}
+
+/// Entries for photos anywhere on disk, such as an album's. Paths that are
+/// gone or aren't photos are left out.
+pub fn photos(paths: &[PathBuf]) -> Vec<Photo> {
+    paths
+        .iter()
+        .filter_map(|p| {
+            let name = p.file_name()?.to_string_lossy().into_owned();
+            photo(p.clone(), name, std::fs::metadata(p))
+        })
+        .collect()
 }
 
 fn modified_ms(meta: &std::fs::Metadata) -> u64 {
@@ -148,6 +187,25 @@ pub fn store_edited(cache: &Path, photo: &Path, img: &RgbImage) {
     }
 }
 
+/// Render `doc` onto the photo's quick thumbnail and store that as its
+/// thumbnail, for photos whose edit changed without being opened (such as
+/// after syncing edits). Plugin steps that aren't ready are left out.
+pub fn render_thumbnail(renderer: &Renderer, cache: &Path, photo: &Path, doc: &EditDocument) {
+    let Ok(thumb) = browse::thumbnail(photo, THUMB_EDGE) else {
+        return;
+    };
+    let pixels = thumb
+        .pixels()
+        .map(|p| {
+            let [r, g, b] = p.0.map(|v| srgb_to_linear(v as f32 / 255.0));
+            [r, g, b, 1.0]
+        })
+        .collect();
+    let mut img = LinearImage::new(thumb.width(), thumb.height(), pixels);
+    renderer.render(doc, &mut img);
+    store_edited(cache, photo, &srgb8(&img));
+}
+
 fn encode(img: &RgbImage) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, THUMB_QUALITY)
@@ -177,6 +235,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn synced_edits_redraw_the_thumbnail() {
+        let dir = temp("render-thumb");
+        let photo = dir.join("grey.jpg");
+        RgbImage::from_pixel(64, 48, image::Rgb([128, 128, 128]))
+            .save(&photo)
+            .unwrap();
+        let cache = dir.join("cache");
+        let plain = thumbnail(&cache, &photo).unwrap();
+        let mut doc = crate::organize::load_or_new(&photo).unwrap();
+        doc.layers[0].operations = vec![aperio_core::Operation::Exposure { ev: 1.0 }];
+        render_thumbnail(&Renderer::cpu(), &cache, &photo, &doc);
+        let brighter = image::load_from_memory(&thumbnail(&cache, &photo).unwrap())
+            .unwrap()
+            .into_rgb8();
+        let before = image::load_from_memory(&plain).unwrap().into_rgb8();
+        assert!(brighter.get_pixel(10, 10)[0] > before.get_pixel(10, 10)[0] + 30);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
