@@ -45,12 +45,39 @@ export type Mask =
   | { kind: "brush"; strokes: BrushStroke[] }
   | { kind: "linear"; start: Point; end: Point }
   | { kind: "radial"; center: Point; radius: Point; angle_deg: number; feather: number; invert: boolean }
+  /** Brightness range, in sRGB-encoded luminance 0..1. */
+  | { kind: "luminance"; low: number; high: number; feather: number }
+  /** Hue range, in degrees. */
+  | { kind: "color"; hue: number; range: number; feather: number }
+  | { kind: "combine"; parts: MaskPart[] }
   | { kind: "plugin"; plugin: string; version: string; params: unknown };
+
+export type MaskMode = "add" | "subtract" | "intersect";
+
+export interface MaskPart {
+  mode: MaskMode;
+  invert?: boolean;
+  mask: Mask;
+}
+
+export type BlendMode = "normal" | "multiply" | "screen" | "overlay" | "soft_light" | "color" | "luminosity";
+
+export const BLEND_MODES: Array<[BlendMode, string]> = [
+  ["normal", "Normal"],
+  ["multiply", "Multiply"],
+  ["screen", "Screen"],
+  ["overlay", "Overlay"],
+  ["soft_light", "Soft light"],
+  ["color", "Color"],
+  ["luminosity", "Luminosity"],
+];
 
 export interface Layer {
   name: string;
   enabled: boolean;
   opacity: number;
+  /** Left out when normal. */
+  blend_mode?: BlendMode;
   mask?: Mask;
   operations: Operation[];
 }
@@ -300,7 +327,32 @@ export function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-export function maskLabel(mask: Mask | undefined) {
+const HUE_NAMES: Array<[number, string]> = [
+  [15, "Red"],
+  [45, "Orange"],
+  [70, "Yellow"],
+  [160, "Green"],
+  [200, "Aqua"],
+  [255, "Blue"],
+  [290, "Purple"],
+  [340, "Magenta"],
+  [360, "Red"],
+];
+
+/** A rough name for a hue in degrees. */
+export function hueName(hue: number) {
+  const h = ((hue % 360) + 360) % 360;
+  return HUE_NAMES.find(([end]) => h < end)?.[1] ?? "Red";
+}
+
+/** The mask that on-canvas tools edit: for combined masks, the selected
+ * part. */
+export function activeMask(mask: Mask | undefined, part: number): Mask | undefined {
+  if (mask?.kind !== "combine") return mask;
+  return mask.parts[Math.min(part, mask.parts.length - 1)]?.mask;
+}
+
+export function maskLabel(mask: Mask | undefined): string {
   switch (mask?.kind) {
     case undefined:
       return "Whole image";
@@ -310,6 +362,14 @@ export function maskLabel(mask: Mask | undefined) {
       return "Linear gradient";
     case "radial":
       return mask.invert ? "Radial, inverted" : "Radial gradient";
+    case "luminance":
+      return `Luminance ${Math.round(mask.low * 100)}–${Math.round(mask.high * 100)}%`;
+    case "color":
+      return `Color range · ${hueName(mask.hue)}`;
+    case "combine": {
+      const n = mask.parts.length;
+      return n === 1 ? maskLabel(mask.parts[0].mask) : `${n} masks combined`;
+    }
     case "plugin": {
       if (mask.plugin !== "org.aperio.segment") return mask.plugin;
       const params = (mask.params ?? {}) as { class?: string; invert?: boolean };

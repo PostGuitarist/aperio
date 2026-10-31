@@ -39,10 +39,35 @@ pub struct Layer {
     pub enabled: bool,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
+    /// How the layer's result combines with the layers below.
+    #[serde(default, skip_serializing_if = "BlendMode::is_normal")]
+    pub blend_mode: BlendMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
     #[serde(default)]
     pub operations: Vec<Operation>,
+}
+
+/// Layer blend modes. Multiply, screen, overlay, and soft light work on
+/// sRGB-encoded values, the way most editors do; color and luminosity swap
+/// chroma and brightness between the layer and what's below it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    SoftLight,
+    Color,
+    Luminosity,
+}
+
+impl BlendMode {
+    pub fn is_normal(&self) -> bool {
+        *self == BlendMode::Normal
+    }
 }
 
 fn default_true() -> bool {
@@ -59,6 +84,7 @@ impl Layer {
             name: name.into(),
             enabled: true,
             opacity: 1.0,
+            blend_mode: BlendMode::Normal,
             mask: None,
             operations: Vec::new(),
         }
@@ -147,6 +173,42 @@ mod tests {
         let doc = sample();
         let parsed = EditDocument::from_json(&doc.to_json().unwrap()).unwrap();
         assert_eq!(doc, parsed);
+    }
+
+    #[test]
+    fn combined_masks_and_blend_modes_round_trip() {
+        use crate::mask::{MaskMode, MaskPart};
+        let mut doc = sample();
+        let mut layer = Layer::new("Shadows in the sky");
+        layer.blend_mode = BlendMode::SoftLight;
+        layer.mask = Some(Mask::Combine {
+            parts: vec![
+                MaskPart {
+                    mode: MaskMode::Add,
+                    invert: false,
+                    mask: Mask::Linear {
+                        start: [0.5, 0.0],
+                        end: [0.5, 0.5],
+                    },
+                },
+                MaskPart {
+                    mode: MaskMode::Intersect,
+                    invert: true,
+                    mask: Mask::Luminance {
+                        low: 0.6,
+                        high: 1.0,
+                        feather: 0.1,
+                    },
+                },
+            ],
+        });
+        doc.layers.push(layer);
+        let json = doc.to_json().unwrap();
+        assert!(json.contains("\"blend_mode\": \"soft_light\""));
+        assert!(json.contains("\"mode\": \"intersect\""));
+        assert_eq!(EditDocument::from_json(&json).unwrap(), doc);
+        // Normal blending isn't written, so older builds still read the file.
+        assert!(!sample().to_json().unwrap().contains("blend_mode"));
     }
 
     #[test]

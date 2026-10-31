@@ -2,7 +2,7 @@
 //! that the GPU shader and the CPU path both run.
 
 use aperio_core::ops::GradeWheel;
-use aperio_core::{EditDocument, Mask, Operation};
+use aperio_core::{BlendMode, EditDocument, Mask, Operation};
 
 use crate::color::{blackbody_rgb, linear_to_srgb, luminance, srgb_to_linear};
 use crate::curve::{self, LUT_SIZE};
@@ -330,6 +330,7 @@ pub struct LayerProgram {
     pub op_start: usize,
     pub op_count: usize,
     pub opacity: f32,
+    pub blend_mode: BlendMode,
     pub mask: Option<Mask>,
     /// Plugin operations in this layer, in order. Each runs after the first
     /// `at` of the layer's per-pixel steps.
@@ -359,7 +360,12 @@ impl Program {
     /// tests; real rendering goes through `Renderer`.
     pub fn apply(&self, px: [f32; 4]) -> [f32; 4] {
         self.layers.iter().fold(px, |below, layer| {
-            blend(below, self.apply_layer(layer, below), layer.opacity)
+            composite(
+                layer.blend_mode,
+                below,
+                self.apply_layer(layer, below),
+                layer.opacity,
+            )
         })
     }
 }
@@ -368,6 +374,63 @@ impl Program {
 /// shader's blend.
 pub fn blend(below: [f32; 4], above: [f32; 4], weight: f32) -> [f32; 4] {
     std::array::from_fn(|i| below[i] + (above[i] - below[i]) * weight)
+}
+
+/// Combine a layer's result with what's below through `mode`, then blend
+/// that in by `weight`. Must match `blend_mode` in shader.wgsl.
+pub fn composite(mode: BlendMode, below: [f32; 4], above: [f32; 4], weight: f32) -> [f32; 4] {
+    let a = [below[0], below[1], below[2]];
+    let b = [above[0], above[1], above[2]];
+    let rgb = blend_mode(mode, a, b);
+    blend(below, [rgb[0], rgb[1], rgb[2], above[3]], weight)
+}
+
+fn blend_mode(mode: BlendMode, a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    let separable = |f: fn(f32, f32) -> f32| {
+        // A shared scale keeps values over 1.0 from clipping.
+        let scale = a.iter().chain(&b).fold(1.0f32, |m, v| m.max(*v));
+        let enc = |c: [f32; 3]| c.map(|v| linear_to_srgb((v / scale).clamp(0.0, 1.0)));
+        let (ea, eb) = (enc(a), enc(b));
+        let out: [f32; 3] = std::array::from_fn(|i| f(ea[i], eb[i]));
+        out.map(|v| srgb_to_linear(v.clamp(0.0, 1.0)) * scale)
+    };
+    // `from` with the luminance of `to`.
+    let relum = |from: [f32; 3], to: [f32; 3]| {
+        let (lf, lt) = (luminance(from), luminance(to));
+        if lf <= 1e-6 {
+            [lt; 3]
+        } else {
+            from.map(|v| v * lt / lf)
+        }
+    };
+    match mode {
+        BlendMode::Normal => b,
+        BlendMode::Multiply => separable(|a, b| a * b),
+        BlendMode::Screen => separable(|a, b| 1.0 - (1.0 - a) * (1.0 - b)),
+        BlendMode::Overlay => separable(|a, b| {
+            if a < 0.5 {
+                2.0 * a * b
+            } else {
+                1.0 - 2.0 * (1.0 - a) * (1.0 - b)
+            }
+        }),
+        BlendMode::SoftLight => separable(|a, b| (1.0 - 2.0 * b) * a * a + 2.0 * b * a),
+        BlendMode::Color => relum(b, a),
+        BlendMode::Luminosity => relum(a, b),
+    }
+}
+
+/// The value the shader's `Params.blend` uses for each mode.
+pub fn blend_code(mode: BlendMode) -> u32 {
+    match mode {
+        BlendMode::Normal => 0,
+        BlendMode::Multiply => 1,
+        BlendMode::Screen => 2,
+        BlendMode::Overlay => 3,
+        BlendMode::SoftLight => 4,
+        BlendMode::Color => 5,
+        BlendMode::Luminosity => 6,
+    }
 }
 
 /// Compile a document for rendering.
@@ -505,6 +568,7 @@ pub fn compile(doc: &EditDocument) -> Program {
             op_start,
             op_count: p.ops.len() - op_start,
             opacity: layer.opacity.clamp(0.0, 1.0),
+            blend_mode: layer.blend_mode,
             mask: layer.mask.clone(),
             plugin_steps,
         });

@@ -59,6 +59,7 @@ Keeping the original extension means `IMG_0001.CR3` and `IMG_0001.JPG` from the 
 | `source.size_bytes`, `source.sha256` | Used to warn when the original has been replaced. `sha256` is optional. |
 | `layers` | Applied bottom to top. Each layer runs its operations on the result of the layers below, then blends that back in by mask × opacity. The first layer works on the decoded source image. |
 | `layers[].enabled`, `opacity` | Default to `true` and `1.0` when missing. |
+| `layers[].blend_mode` | Optional, `normal` when missing (and not written then). One of `normal`, `multiply`, `screen`, `overlay`, `soft_light`, `color`, `luminosity`. The layer's result is combined with what's below in this mode, then blended in by mask × opacity. Multiply, screen, overlay, and soft light work on sRGB-encoded values; color keeps the brightness below and takes the layer's color, and luminosity does the opposite. With a mode other than `normal`, a layer with no operations still changes the photo. |
 | `layers[].mask` | Optional. Without a mask the layer applies to the whole image. |
 | `layers[].operations` | Applied in order. |
 
@@ -89,7 +90,12 @@ Each mask has a `kind` tag. Coordinates are normalized (0–1) to the uncropped 
 | `brush` | `strokes`, replayed in order. Each has `points` (a polyline), `size` (brush diameter as a fraction of the image's longer edge), `feather` (0 = hard edge, 1 = soft all the way to the center), `flow` (0–1 strength), and `erase` (remove instead of add). |
 | `linear` | `start` (fully applied) to `end` (not applied), with a smooth falloff between. |
 | `radial` | `center`, `radius` (x, y), `angle_deg`, `feather` (fraction of the radius that fades out), `invert` |
+| `luminance` | `low`, `high` (sRGB-encoded luminance, 0–1): fully selected between them, fading out over `feather` (default 0.1) on either side. |
+| `color` | `hue` (degrees, 0 = red, 120 = green, 240 = blue): fully selected within `range` degrees (default 20), fading out over `feather` more degrees (default 20). Greys are never selected. |
+| `combine` | `parts`, each with a `mask`, a `mode` (`add`, `subtract`, or `intersect`; default `add`), and an optional `invert`. The first part starts the result whatever its mode; each later part is added (a + b − ab), subtracted (a × (1 − b)), or intersected (a × b). Parts can be any kind, including another `combine`. |
 | `plugin` | `plugin` id, `version`, free-form `params` (e.g. AI segmentation) |
+
+Luminance and color masks, like plugin masks, are read from the photo before any layer's adjustments, so editing a layer never changes what a range mask selects.
 
 Plugin masks store only their inputs. The generated mask is cached elsewhere and rebuilt when missing, so sidecars stay small and readable. The AI masks keep their network outputs in the user's cache folder (for example `~/Library/Caches/aperio/masks` on macOS, `~/.cache/aperio/masks` on Linux), up to 512 MB, so a photo opened again later doesn't wait for the network. Deleting that folder is always safe.
 

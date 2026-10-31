@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { loadPlugins } from "./ai";
+import { activeMask } from "./doc";
 import { buildExport } from "./export";
 import { buildFilmstrip } from "./filmstrip";
 import { buildHistory } from "./history";
@@ -273,7 +274,7 @@ onUpdate(() => {
   for (const b of document.querySelectorAll<HTMLButtonElement>("#rail button[data-tool]")) {
     b.disabled = !ready;
     const tool = b.dataset.tool;
-    const kind = editor.selected > 0 ? editor.doc.layers[editor.selected]?.mask?.kind : undefined;
+    const kind = editor.selected > 0 ? activeMask(editor.doc.layers[editor.selected]?.mask, editor.part)?.kind : undefined;
     const active =
       (tool === "crop" && editor.tab === "crop") ||
       (tool === "ai" && editor.tab === "ai") ||

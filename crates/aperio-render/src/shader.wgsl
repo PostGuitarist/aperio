@@ -16,7 +16,7 @@ struct Params {
     op_count: u32,
     has_mask: u32,
     opacity: f32,
-    _pad0: f32,
+    blend: u32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -202,6 +202,50 @@ fn apply(op: AdjustOp, px: vec3<f32>) -> vec3<f32> {
     }
 }
 
+// Must match `blend_mode` in adjust.rs.
+fn overlay(a: f32, b: f32) -> f32 {
+    if a < 0.5 {
+        return 2.0 * a * b;
+    }
+    return 1.0 - 2.0 * (1.0 - a) * (1.0 - b);
+}
+
+// `c` with the luminance of `goal`.
+fn relum(c: vec3<f32>, goal: vec3<f32>) -> vec3<f32> {
+    let lc = luminance(c);
+    let lt = luminance(goal);
+    if lc <= 1e-6 {
+        return vec3<f32>(lt);
+    }
+    return c * (lt / lc);
+}
+
+fn blend_mode(mode: u32, a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {
+    if mode == 0u {
+        return b;
+    }
+    if mode == 5u {
+        return relum(b, a);
+    }
+    if mode == 6u {
+        return relum(a, b);
+    }
+    let scale = max(max(max(a.r, a.g), max(a.b, b.r)), max(max(b.g, b.b), 1.0));
+    let ea = encode(clamp(a, vec3<f32>(0.0), vec3<f32>(scale)), scale);
+    let eb = encode(clamp(b, vec3<f32>(0.0), vec3<f32>(scale)), scale);
+    var r = eb;
+    if mode == 1u {
+        r = ea * eb;
+    } else if mode == 2u {
+        r = vec3<f32>(1.0) - (vec3<f32>(1.0) - ea) * (vec3<f32>(1.0) - eb);
+    } else if mode == 3u {
+        r = vec3<f32>(overlay(ea.r, eb.r), overlay(ea.g, eb.g), overlay(ea.b, eb.b));
+    } else if mode == 4u {
+        r = (vec3<f32>(1.0) - 2.0 * eb) * ea * ea + 2.0 * eb * ea;
+    }
+    return decode(r, scale);
+}
+
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x + id.y * 65535u * 256u;
@@ -221,5 +265,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var k = params.op_start; k < params.op_start + params.op_count; k++) {
         rgb = apply(ops[k], rgb);
     }
+    rgb = blend_mode(params.blend, below.rgb, rgb);
     pixels[i] = mix(below, vec4<f32>(rgb, below.a), weight);
 }

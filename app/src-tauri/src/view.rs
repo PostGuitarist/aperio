@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use aperio_core::{EditDocument, Mask, Operation};
-use aperio_plugin::Image;
 use aperio_render::{compile, LinearImage, Renderer, Skipped};
 use serde::Deserialize;
 
@@ -62,24 +61,7 @@ pub fn render(
 }
 
 fn weights(renderer: &Renderer, mask: &Mask, img: &LinearImage) -> Option<Arc<Vec<f32>>> {
-    match mask {
-        Mask::Plugin {
-            plugin,
-            version,
-            params,
-        } => {
-            let source = Image {
-                width: img.width,
-                height: img.height,
-                pixels: &img.pixels,
-            };
-            renderer
-                .plugins()?
-                .mask(plugin, version, params, source)
-                .ok()
-        }
-        m => renderer.drawn_mask(m, img.width, img.height),
-    }
+    renderer.mask_weights(mask, img).ok()
 }
 
 fn without_crop(doc: &EditDocument) -> EditDocument {
