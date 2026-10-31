@@ -10,9 +10,28 @@ export type Operation =
   | { op: "tone"; highlights: number; shadows: number; whites: number; blacks: number }
   | { op: "white_balance"; temperature_k: number; tint: number }
   | { op: "color"; saturation: number; vibrance: number }
+  | { op: "presence"; texture: number; clarity: number; dehaze: number }
+  | { op: "hsl"; hue: number[]; saturation: number[]; luminance: number[] }
+  | ({ op: "color_grade" } & Grade)
   | { op: "curve"; channel: Channel; points: Point[] }
   | { op: "crop"; x: number; y: number; width: number; height: number; angle_deg: number }
   | { op: "plugin"; plugin: string; version: string; params: unknown };
+
+export interface Wheel {
+  /** Degrees, 0 to 360. */
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+
+export interface Grade {
+  shadows: Wheel;
+  midtones: Wheel;
+  highlights: Wheel;
+  global: Wheel;
+  blending: number;
+  balance: number;
+}
 
 export interface BrushStroke {
   points: Point[];
@@ -103,6 +122,75 @@ export function writeAdjustments(layer: Layer, a: Adjustments) {
   if (a.saturation !== 0 || a.vibrance !== 0)
     ops.push({ op: "color", saturation: a.saturation, vibrance: a.vibrance });
   layer.operations = [...ops, ...layer.operations.filter((op) => !ADJUST_OPS.has(op.op))];
+}
+
+// --- Presence, color mixer, and color grading -----------------------------
+
+export type Presence = { texture: number; clarity: number; dehaze: number };
+export type Hsl = { hue: number[]; saturation: number[]; luminance: number[] };
+
+export const NEUTRAL_PRESENCE: Presence = { texture: 0, clarity: 0, dehaze: 0 };
+const zeros = () => new Array<number>(8).fill(0);
+export const neutralHsl = (): Hsl => ({ hue: zeros(), saturation: zeros(), luminance: zeros() });
+const neutralWheel = (): Wheel => ({ hue: 0, saturation: 0, luminance: 0 });
+export const neutralGrade = (): Grade => ({ shadows: neutralWheel(), midtones: neutralWheel(), highlights: neutralWheel(), global: neutralWheel(), blending: 0.5, balance: 0 });
+
+/** These come after the basic adjustments and curves, in this order. */
+const LATER_OPS = ["presence", "hsl", "color_grade"];
+
+type Later = Extract<Operation, { op: "presence" | "hsl" | "color_grade" }>;
+
+function readLater<K extends Later["op"]>(layer: Layer, op: K): Extract<Later, { op: K }> | undefined {
+  return layer.operations.find((o): o is Extract<Later, { op: K }> => o.op === op);
+}
+
+/** Put `value` in place of the layer's `op` operation, or remove it when
+ * `value` is null. A new one goes after the basic adjustments and curves. */
+function writeLater(layer: Layer, op: Later["op"], value: Later | null) {
+  const at = layer.operations.findIndex((o) => o.op === op);
+  if (at >= 0) {
+    if (value) layer.operations[at] = value;
+    else layer.operations.splice(at, 1);
+    return;
+  }
+  if (!value) return;
+  const rank = LATER_OPS.indexOf(op);
+  const before = layer.operations.findIndex((o) => o.op === "crop" || o.op === "plugin" || LATER_OPS.indexOf(o.op) > rank);
+  layer.operations.splice(before < 0 ? layer.operations.length : before, 0, value);
+}
+
+export function readPresence(layer: Layer): Presence {
+  const o = readLater(layer, "presence");
+  return o ? { texture: o.texture, clarity: o.clarity, dehaze: o.dehaze } : { ...NEUTRAL_PRESENCE };
+}
+
+export function writePresence(layer: Layer, p: Presence) {
+  const neutral = p.texture === 0 && p.clarity === 0 && p.dehaze === 0;
+  writeLater(layer, "presence", neutral ? null : { op: "presence", ...p });
+}
+
+export function readHsl(layer: Layer): Hsl {
+  const o = readLater(layer, "hsl");
+  return o ? clone({ hue: o.hue, saturation: o.saturation, luminance: o.luminance }) : neutralHsl();
+}
+
+export function writeHsl(layer: Layer, v: Hsl) {
+  const neutral = [...v.hue, ...v.saturation, ...v.luminance].every((x) => x === 0);
+  writeLater(layer, "hsl", neutral ? null : { op: "hsl", ...clone(v) });
+}
+
+export function readGrade(layer: Layer): Grade {
+  const o = readLater(layer, "color_grade");
+  if (!o) return neutralGrade();
+  const { op: _, ...g } = clone(o);
+  return { ...neutralGrade(), ...g };
+}
+
+export const isNeutralWheel = (w: Wheel) => w.saturation === 0 && w.luminance === 0;
+
+export function writeGrade(layer: Layer, g: Grade) {
+  const neutral = [g.shadows, g.midtones, g.highlights, g.global].every(isNeutralWheel) && g.blending === 0.5 && g.balance === 0;
+  writeLater(layer, "color_grade", neutral ? null : { op: "color_grade", ...clone(g) });
 }
 
 // --- Curves ---------------------------------------------------------------

@@ -1951,3 +1951,99 @@ dialog.shortcuts h2 {
   padding: 3px 0;
   font-size: 12px;
 }
+
+/* --- Color mixer and grading --- */
+
+.section-body .segmented {
+  margin-bottom: 10px;
+}
+
+.band-dots {
+  display: flex;
+  justify-content: space-between;
+  margin: 2px 2px 14px;
+}
+
+.band-dots[hidden] {
+  display: none;
+}
+
+button.band-dot {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+button.band-dot.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px rgb(255 255 255 / 0.25);
+}
+
+button.band-dot.changed::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.slider input.hue {
+  background: linear-gradient(90deg, hsl(0 75% 55%), hsl(60 75% 55%), hsl(120 75% 55%), hsl(180 75% 55%), hsl(240 75% 55%), hsl(300 75% 55%), hsl(360 75% 55%));
+}
+
+.wheels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.wheel-cell,
+.wheel-single {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.wheel-single {
+  margin-bottom: 12px;
+}
+
+.wheel {
+  position: relative;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.4);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.wheel.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.wheel-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 3px rgb(0 0 0 / 0.8);
+  pointer-events: none;
+}
+
+.wheel-caption {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.wheel-values {
+  font-size: 10px;
+}

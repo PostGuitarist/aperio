@@ -1,11 +1,13 @@
 //! Per-pixel adjustments, compiled from document operations into a flat list
 //! that the GPU shader and the CPU path both run.
 
+use aperio_core::ops::GradeWheel;
 use aperio_core::{EditDocument, Mask, Operation};
 
 use crate::color::{blackbody_rgb, linear_to_srgb, luminance, srgb_to_linear};
 use crate::curve::{self, LUT_SIZE};
 use crate::geometry::CropRect;
+use crate::presence::{Presence, PRESENCE_STEP};
 use crate::tone;
 use aperio_core::ops::CurveChannel;
 
@@ -36,6 +38,26 @@ pub const KIND_GAIN: u32 = 1;
 pub const KIND_CONTRAST: u32 = 2;
 pub const KIND_COLOR: u32 = 3;
 pub const KIND_CURVE: u32 = 4;
+pub const KIND_HSL: u32 = 5;
+pub const KIND_GRADE: u32 = 6;
+
+/// Band centers of [`Operation::Hsl`], as hues from 0 to 1.
+pub const HSL_BANDS: [f32; 8] = [
+    0.0,
+    30.0 / 360.0,
+    60.0 / 360.0,
+    120.0 / 360.0,
+    180.0 / 360.0,
+    240.0 / 360.0,
+    270.0 / 360.0,
+    300.0 / 360.0,
+];
+/// How far a full hue slider turns its band, as a share of the hue circle.
+const HSL_HUE_RANGE: f32 = 30.0 / 360.0;
+/// How strong a full color grading tint and luminance shift are, in
+/// sRGB-encoded units.
+const GRADE_TINT_SCALE: f32 = 0.25;
+const GRADE_LUM_SCALE: f32 = 0.2;
 
 const CHANNEL_RGB: f32 = 0.0;
 const CHANNEL_LUMA: f32 = 4.0;
@@ -83,9 +105,22 @@ impl AdjustOp {
         Self::new(KIND_CURVE, lut_index as f32, channel, 0.0)
     }
 
+    /// Per-band hue, saturation, and luminance, baked into three lookup
+    /// tables starting at `lut_index`.
+    fn hsl(lut_index: usize) -> Self {
+        Self::new(KIND_HSL, lut_index as f32, 0.0, 0.0)
+    }
+
+    /// Color grading, its values stored in the lookup block at `lut_index`.
+    fn grade(lut_index: usize) -> Self {
+        Self::new(KIND_GRADE, lut_index as f32, 0.0, 0.0)
+    }
+
     /// The CPU reference for the shader's `apply` function.
     pub fn apply(&self, px: [f32; 3], luts: &[f32]) -> [f32; 3] {
         match self.kind {
+            KIND_HSL => hsl_pixel(px, &luts[self.a as usize * LUT_SIZE..]),
+            KIND_GRADE => grade_pixel(px, &luts[self.a as usize * LUT_SIZE..]),
             KIND_GAIN => [px[0] * self.a, px[1] * self.b, px[2] * self.c],
             KIND_CONTRAST => {
                 // Power curve around middle grey: highlights and shadows move
@@ -132,6 +167,135 @@ impl AdjustOp {
             _ => px,
         }
     }
+}
+
+/// sRGB-encoded copy of a linear pixel scaled into 0..1, and that scale, so
+/// overbright values come back at their own brightness.
+fn encode(px: [f32; 3]) -> ([f32; 3], f32) {
+    let scale = px[0].max(px[1]).max(px[2]).max(1.0);
+    (px.map(|v| linear_to_srgb(v / scale)), scale)
+}
+
+fn decode(c: [f32; 3], scale: f32) -> [f32; 3] {
+    c.map(|v| srgb_to_linear(v.clamp(0.0, 1.0)) * scale)
+}
+
+/// Hue (0..1), saturation, and value of an sRGB-encoded color.
+fn to_hsv(c: [f32; 3]) -> (f32, f32, f32) {
+    let mx = c[0].max(c[1]).max(c[2]);
+    let mn = c[0].min(c[1]).min(c[2]);
+    let chroma = mx - mn;
+    if chroma <= 1e-6 {
+        return (0.0, 0.0, mx);
+    }
+    let h = if mx == c[0] {
+        (c[1] - c[2]) / chroma
+    } else if mx == c[1] {
+        (c[2] - c[0]) / chroma + 2.0
+    } else {
+        (c[0] - c[1]) / chroma + 4.0
+    };
+    ((h / 6.0).rem_euclid(1.0), chroma / mx, mx)
+}
+
+/// Matches `hsv_to_rgb` in the shader.
+pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+    [5.0, 3.0, 1.0].map(|n: f32| {
+        let k = (n + h * 6.0).rem_euclid(6.0);
+        v - v * s * k.min(4.0 - k).clamp(0.0, 1.0)
+    })
+}
+
+/// Linear interpolation in a lookup table indexed by hue, wrapping around.
+fn hue_lookup(lut: &[f32], hue: f32) -> f32 {
+    curve::lookup(&lut[..LUT_SIZE], hue)
+}
+
+fn hsl_pixel(px: [f32; 3], luts: &[f32]) -> [f32; 3] {
+    let (c, scale) = encode(px);
+    let (h, s, v) = to_hsv(c);
+    if s <= 0.0 {
+        return px;
+    }
+    let dh = hue_lookup(luts, h);
+    let ds = hue_lookup(&luts[LUT_SIZE..], h);
+    let dl = hue_lookup(&luts[2 * LUT_SIZE..], h);
+    let turned = hsv_to_rgb((h + dh * HSL_HUE_RANGE).rem_euclid(1.0), s, v);
+    // Saturation moves toward or away from the color's own brightness, so
+    // desaturating doesn't lighten it.
+    let lum = luminance(turned);
+    // Greys have no hue, so luminance fades out as color does.
+    let k = 1.0 + dl * 0.5 * s;
+    decode(
+        turned.map(|c| (lum + (c - lum) * (1.0 + ds)).max(0.0) * k),
+        scale,
+    )
+}
+
+/// Layout of a grade block: four tints (rgb + luminance each, for shadows,
+/// midtones, highlights, global), then the range center and width.
+const GRADE_CENTER: usize = 16;
+const GRADE_WIDTH: usize = 17;
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Shadows, midtones, and highlights weights for an encoded luminance.
+fn grade_weights(l: f32, center: f32, width: f32) -> [f32; 3] {
+    let shadows = 1.0 - smoothstep(0.0, center + width, l);
+    let highlights = smoothstep(center - width, 1.0, l);
+    [shadows, (1.0 - shadows - highlights).max(0.0), highlights]
+}
+
+fn grade_pixel(px: [f32; 3], g: &[f32]) -> [f32; 3] {
+    let (mut c, scale) = encode(px);
+    let l = linear_to_srgb(luminance(px) / scale);
+    let w = grade_weights(l, g[GRADE_CENTER], g[GRADE_WIDTH]);
+    for (i, wi) in w.iter().chain(std::iter::once(&1.0)).enumerate() {
+        let t = &g[i * 4..i * 4 + 4];
+        for ch in 0..3 {
+            c[ch] += wi * (t[ch] + t[3]);
+        }
+    }
+    decode(c, scale)
+}
+
+/// The values a grade block holds, from the document's wheels.
+fn bake_grade(wheels: [GradeWheel; 4], blending: f32, balance: f32) -> Vec<f32> {
+    let mut out = vec![0.0; LUT_SIZE];
+    for (i, w) in wheels.iter().enumerate() {
+        let hue = hsv_to_rgb(w.hue.rem_euclid(360.0) / 360.0, 1.0, 1.0);
+        // Remove the hue's own brightness so a tint shifts color only.
+        let lum = 0.2126 * hue[0] + 0.7152 * hue[1] + 0.0722 * hue[2];
+        let s = w.saturation.clamp(0.0, 1.0) * GRADE_TINT_SCALE;
+        for ch in 0..3 {
+            out[i * 4 + ch] = (hue[ch] - lum) * s;
+        }
+        out[i * 4 + 3] = w.luminance.clamp(-1.0, 1.0) * GRADE_LUM_SCALE;
+    }
+    out[GRADE_CENTER] = 0.5 - 0.25 * balance.clamp(-1.0, 1.0);
+    out[GRADE_WIDTH] = 0.1 + 0.3 * blending.clamp(0.0, 1.0);
+    out
+}
+
+/// Bake the eight bands into hue-indexed tables for hue, saturation, and
+/// luminance, with smooth falloff between neighboring band centers.
+fn bake_hsl(hue: [f32; 8], saturation: [f32; 8], lum: [f32; 8]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(3 * LUT_SIZE);
+    for values in [hue, saturation, lum] {
+        out.extend((0..LUT_SIZE).map(|i| {
+            let x = i as f32 / (LUT_SIZE - 1) as f32;
+            // The band below x (wrapping) and the next one up.
+            let k = HSL_BANDS.iter().rposition(|&c| c <= x).unwrap_or(7);
+            let (lo, hi) = (HSL_BANDS[k], HSL_BANDS.get(k + 1).copied().unwrap_or(1.0));
+            let t = smoothstep(0.0, 1.0, (x - lo) / (hi - lo));
+            let next = values[(k + 1) % 8];
+            values[k].clamp(-1.0, 1.0) * (1.0 - t) + next.clamp(-1.0, 1.0) * t
+        }));
+    }
+    out
 }
 
 /// A step the renderer left out, and why.
@@ -249,6 +413,52 @@ pub fn compile(doc: &EditDocument) -> Program {
                     saturation,
                     vibrance,
                 } => p.ops.push(AdjustOp::color(saturation, vibrance)),
+                Operation::Hsl {
+                    hue,
+                    saturation,
+                    luminance,
+                } => {
+                    let all = hue.iter().chain(&saturation).chain(&luminance);
+                    if all.into_iter().any(|v| *v != 0.0) {
+                        let lut = p.luts.len() / LUT_SIZE;
+                        p.luts.extend(bake_hsl(hue, saturation, luminance));
+                        p.ops.push(AdjustOp::hsl(lut));
+                    }
+                }
+                Operation::ColorGrade {
+                    shadows,
+                    midtones,
+                    highlights,
+                    global,
+                    blending,
+                    balance,
+                } => {
+                    let wheels = [shadows, midtones, highlights, global];
+                    if !wheels.iter().all(GradeWheel::is_neutral) {
+                        let lut = p.luts.len() / LUT_SIZE;
+                        p.luts.extend(bake_grade(wheels, blending, balance));
+                        p.ops.push(AdjustOp::grade(lut));
+                    }
+                }
+                Operation::Presence {
+                    texture,
+                    clarity,
+                    dehaze,
+                } => {
+                    let presence = Presence {
+                        texture,
+                        clarity,
+                        dehaze,
+                    };
+                    if !presence.is_neutral() {
+                        plugin_steps.push(PluginStep {
+                            at: p.ops.len() - op_start,
+                            plugin: PRESENCE_STEP.into(),
+                            version: env!("CARGO_PKG_VERSION").into(),
+                            params: serde_json::to_value(presence).expect("plain numbers"),
+                        });
+                    }
+                }
                 Operation::Curve {
                     channel,
                     ref points,
@@ -493,6 +703,92 @@ mod tests {
                 reason: "crop only applies on the base layer".into(),
             }]
         );
+    }
+
+    fn hsl(band: usize, prop: usize, v: f32) -> Operation {
+        let mut a = [[0.0f32; 8]; 3];
+        a[prop][band] = v;
+        Operation::Hsl {
+            hue: a[0],
+            saturation: a[1],
+            luminance: a[2],
+        }
+    }
+
+    #[test]
+    fn hsl_changes_only_its_band_and_leaves_greys() {
+        // Blue band, saturation -1: blues go grey, reds and greys stay.
+        let p = compile(&doc(vec![hsl(5, 1, -1.0)]));
+        let blue = p.apply([0.05, 0.05, 0.6, 1.0]);
+        assert!((blue[0] - blue[2]).abs() < 1e-3, "{blue:?}");
+        let red = p.apply([0.6, 0.05, 0.05, 1.0]);
+        assert!((red[0] - 0.6).abs() < 1e-3 && red[1] < 0.06, "{red:?}");
+        let grey = p.apply([0.3, 0.3, 0.3, 1.0]);
+        assert!(
+            grey.iter().take(3).all(|v| (v - 0.3).abs() < 1e-4),
+            "{grey:?}"
+        );
+
+        // Green luminance down darkens greens; hue turns them toward aqua.
+        let darker = compile(&doc(vec![hsl(3, 2, -1.0)])).apply([0.05, 0.5, 0.05, 1.0]);
+        assert!(darker[1] < 0.4, "{darker:?}");
+        let turned = compile(&doc(vec![hsl(3, 0, 1.0)])).apply([0.05, 0.5, 0.05, 1.0]);
+        assert!(turned[2] > 0.1, "{turned:?}");
+    }
+
+    #[test]
+    fn neutral_hsl_and_grade_compile_to_nothing() {
+        let p = compile(&doc(vec![
+            hsl(0, 0, 0.0),
+            Operation::ColorGrade {
+                shadows: GradeWheel::default(),
+                midtones: GradeWheel::default(),
+                highlights: GradeWheel::default(),
+                global: GradeWheel::default(),
+                blending: 0.5,
+                balance: 0.0,
+            },
+        ]));
+        assert!(p.ops.is_empty() && p.luts.is_empty());
+    }
+
+    #[test]
+    fn grading_tints_shadows_and_highlights_separately() {
+        let wheel = |hue, saturation| GradeWheel {
+            hue,
+            saturation,
+            luminance: 0.0,
+        };
+        let p = compile(&doc(vec![Operation::ColorGrade {
+            shadows: wheel(240.0, 1.0),
+            midtones: GradeWheel::default(),
+            highlights: wheel(30.0, 1.0),
+            global: GradeWheel::default(),
+            blending: 0.5,
+            balance: 0.0,
+        }]));
+        let dark = p.apply([0.02, 0.02, 0.02, 1.0]);
+        assert!(dark[2] > dark[0], "shadows go blue: {dark:?}");
+        let bright = p.apply([0.8, 0.8, 0.8, 1.0]);
+        assert!(bright[0] > bright[2], "highlights go orange: {bright:?}");
+        // Tints keep brightness roughly where it was.
+        let lum = |p: [f32; 4]| luminance([p[0], p[1], p[2]]);
+        assert!((lum(bright) - 0.8).abs() < 0.08, "{bright:?}");
+    }
+
+    #[test]
+    fn presence_compiles_to_a_builtin_step() {
+        let p = compile(&doc(vec![
+            Operation::Exposure { ev: 1.0 },
+            Operation::Presence {
+                texture: 0.0,
+                clarity: 0.5,
+                dehaze: 0.0,
+            },
+        ]));
+        assert_eq!(p.layers[0].plugin_steps.len(), 1);
+        assert_eq!(p.layers[0].plugin_steps[0].plugin, PRESENCE_STEP);
+        assert_eq!(p.layers[0].plugin_steps[0].at, 1);
     }
 
     #[test]

@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::adjust::{blend, compile, LayerProgram, PluginStep, Program, Skipped};
 use crate::masks::MaskCache;
+use crate::presence::{self, PRESENCE_STEP};
 use crate::{Error, LinearImage, Result};
 
 /// Pixels processed per GPU pass. 4M pixels is 64 MiB of RGBA f32, well under
@@ -272,6 +273,12 @@ impl Renderer {
                 self.run_layers(program, &[(segment(done, step.at), None)], &mut out);
                 done = step.at;
             }
+            if step.plugin == PRESENCE_STEP {
+                if let Ok(p) = serde_json::from_value(step.params.clone()) {
+                    presence::apply(p, img.width, img.height, &mut out);
+                }
+                continue;
+            }
             let result = match &self.plugins {
                 None => Err("no plugins are loaded".to_string()),
                 Some(host) => host
@@ -507,7 +514,8 @@ impl Gpu {
 mod tests {
     use super::*;
     use aperio_core::mask::BrushStroke;
-    use aperio_core::{ops::CurveChannel, Layer, Mask, Operation, SourceRef};
+    use aperio_core::ops::{CurveChannel, GradeWheel};
+    use aperio_core::{Layer, Mask, Operation, SourceRef};
 
     fn gradient(n: u32) -> LinearImage {
         let pixels = (0..n * n)
@@ -553,6 +561,31 @@ mod tests {
             Operation::Curve {
                 channel: CurveChannel::Blue,
                 points: vec![[0.0, 0.1], [1.0, 0.9]],
+            },
+            Operation::Hsl {
+                hue: [0.5, -0.3, 0.0, 0.8, 0.0, -0.6, 0.2, 0.0],
+                saturation: [0.0, 0.4, -0.5, 0.3, 0.0, 0.7, 0.0, -1.0],
+                luminance: [-0.3, 0.0, 0.2, -0.4, 0.5, 0.0, 0.0, 0.3],
+            },
+            Operation::ColorGrade {
+                shadows: GradeWheel {
+                    hue: 210.0,
+                    saturation: 0.4,
+                    luminance: -0.2,
+                },
+                midtones: GradeWheel::default(),
+                highlights: GradeWheel {
+                    hue: 40.0,
+                    saturation: 0.6,
+                    luminance: 0.1,
+                },
+                global: GradeWheel {
+                    hue: 300.0,
+                    saturation: 0.1,
+                    luminance: 0.0,
+                },
+                blending: 0.7,
+                balance: -0.3,
             },
         ];
         d
